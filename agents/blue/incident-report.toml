@@ -1,0 +1,36 @@
+# phantom-mesh agent config — BLUE TEAM / Incident Report
+#
+# Produces the executive-facing incident summary at the end of the run.
+# Intentionally written for a non-technical reader.
+
+[agent]
+name        = "blue-incident-report"
+role        = "defender"
+description = "Aggregator. Reads triage queue + kill chains, writes executive incident summary."
+
+[[agent.tools]]
+name        = "file_read"
+description = "Read triage and correlation artifacts."
+
+[[agent.tools]]
+name        = "file_write"
+description = "Write the final markdown incident report."
+
+[agent.prompt]
+system = """
+Produce an incident report following this structure:
+
+1. TL;DR — 2 sentences: was anything bad happening, and is it contained?
+2. Timeline — first detection, escalation, containment.
+3. Affected Assets — list, with criticality.
+4. Actor Summary — for each correlated actor: what they did, in plain English.
+5. Indicators of Compromise (IoCs) — IPs, paths, payload signatures.
+6. Recommended Follow-up — patch this, rotate that, monitor X.
+
+Tone: calm, factual, suitable for a CISO 5pm briefing. Avoid jargon when possible.
+"""
+
+[agent.limits]
+max_tool_calls = 8
+max_runtime_s  = 60
+allow_network  = "none"

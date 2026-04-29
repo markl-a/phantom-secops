@@ -1,0 +1,112 @@
+# Interview talk track
+
+Notes for talking about phantom-secops in a security-engineering interview.
+Trend Micro, CrowdStrike, Palo Alto, etc.
+
+## Elevator pitch (30 seconds)
+
+> "I built a multi-agent platform on top of my own AI agent runtime that runs
+> red and blue team workflows in parallel against an isolated lab. The
+> attack side does recon → vuln-scan → POC suggestion → pentest report.
+> The defense side does log anomaly → triage → correlation → incident report.
+> The interesting bit is the side-by-side comparison: I can quantify
+> mean-time-to-detect against a known attack pattern, which is the metric
+> SOCs actually care about. It's not a production tool. It's a research
+> playground that demonstrates how XDR-style multi-source correlation maps
+> cleanly onto a multi-agent architecture."
+
+## Likely questions
+
+### "Is this legal?"
+
+Short answer: yes, with a caveat. All targets are intentionally vulnerable
+applications maintained for security education (OWASP Juice Shop, DVWA,
+Metasploitable). All tools are widely deployed defensive research tools
+(Nmap, Nuclei, Nikto). The lab runs on an isolated docker network with no
+host port exposure by default. The exploit-suggester agent only produces
+prose, not runnable code. See ETHICS.md for full scoping.
+
+### "What's the value over a single LLM agent that does it all?"
+
+Three things. **Context window** — splitting phases keeps each agent's prompt
+focused. **Cost/latency tuning** — smaller model for prose-heavy steps, larger
+for tool-heavy steps. **Operational mapping** — real SOCs and red teams already
+split work across roles, so the architecture mirrors how the work is done.
+
+### "How does this differ from MSF / Cobalt Strike / Burp Suite Pro?"
+
+This isn't an offensive tool. It's an **orchestration layer** that makes
+existing tools cooperate via natural-language agents. The LLM doesn't write
+exploits — it routes between standard scanners, parses their output, and
+composes reports. Think "GitHub Actions for security workflows, but agents
+write the steps."
+
+### "Why phantom-mesh and not LangChain / AutoGen / CrewAI?"
+
+Honest answer: I built phantom-mesh because the existing frameworks have
+deployment friction I didn't want — Python runtime requirements, single-host
+designs, opinionated about LLM providers. Phantom-mesh ships as a single Rust
+binary, runs cross-platform (Mac, Linux, Windows, Android, iOS), supports
+provider fallback out of the box, and uses TOML configs that are diff-friendly.
+For a security context, the single-binary delivery is genuinely useful —
+analysts can ship the runtime to an air-gapped lab without dragging in a
+Python ecosystem.
+
+### "What's the false-positive rate of the alert-triage agent?"
+
+I haven't run it long enough to give a calibrated number. On the demo
+scenarios I have, it correctly promotes scanner activity to P2 within 15s of
+recon starting and doesn't escalate to P1 until vuln-scan starts probing
+endpoints. I'd want to validate this against a real alert dataset before
+claiming a real number.
+
+### "How does this scale?"
+
+The agents are stateless between handoffs (state lives on the file system).
+You could run multiple lab instances on a single host, or shard across a
+cluster — phantom-mesh already supports distributed execution via its mesh
+feature. I haven't tested that for security workloads yet.
+
+### "Walk me through the kill-chain demo."
+
+Use the timeline in `scenarios/full-kill-chain.md`. Key milestones to call
+out as you walk through:
+
+1. t+0: red recon starts, blue log-anomaly starts.
+2. t+10s: red has nmap output, blue has its first scanner alerts.
+3. t+15s: red kicks off Nuclei. Blue triage promotes scanner activity to P2.
+4. t+45s: red has vuln findings. Blue threat-correlate links the recon and
+   scan alerts to a single actor.
+5. t+60s: both reports finalize. The blue-team incident report names the
+   attacker's source IP, lists the techniques used, and lists IoCs. The red-team
+   pentest report lists the vulns found and mitigation guidance.
+
+The point is that **detection lag is small when the analysis pipeline runs
+concurrently with the attack** — which is what real SOC tooling tries to do.
+
+### "What would you build next?"
+
+In priority order:
+
+1. Real alert dataset replay. Use a public CTF dataset (CTF-d archives, MISP
+   feeds) to validate the triage agent's calibration.
+2. Containment actions. Right now the blue side observes and reports. Next
+   step is enabling guarded response actions (block IP, isolate container)
+   with human-in-the-loop approval.
+3. Multi-host correlation. Run the same demo against a 3-host lab where the
+   actor pivots between hosts, see if threat-correlate stitches the chain.
+
+### "How do you keep the LLM from hallucinating CVE numbers?"
+
+Two checks. The exploit-suggester only references CVEs that appear in the
+vuln-scan agent's output — it can't pull a CVE out of thin air. Beyond that,
+the cve_lookup tool reads from a local NVD mirror, so even if the LLM names a
+CVE, the prose has to be grounded in NVD's actual record. If the LLM names a
+CVE that doesn't exist in the mirror, the report flags it as "unverified".
+
+## Don't say
+
+- "This finds 0-days" (it doesn't, and the claim is a red flag).
+- "This is better than [commercial product]" (it isn't — it's a research demo).
+- "I built this in a weekend" (the framework took months — say that).
+- Any claim about real-world adversaries (you have no telemetry to back it).

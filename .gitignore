@@ -1,0 +1,20 @@
+# reports/ contains per-run output. Keep the dir, not the files.
+reports/*
+!reports/.gitkeep
+!reports/sample-*.md
+
+# Python cruft
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

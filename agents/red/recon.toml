@@ -1,0 +1,55 @@
+# phantom-mesh agent config — RED TEAM / Recon
+#
+# Discovers attack surface for a target running in the secops-lab docker network.
+# Outputs structured findings (open ports, service banners, subdomains, headers)
+# to be consumed by the vuln-scan agent.
+
+[agent]
+name        = "red-recon"
+role        = "attacker"
+description = "Active and passive reconnaissance. Open ports, service banners, web tech stack, subdomain enum."
+
+# Tools available. Each maps to a wrapper in tools/.
+[[agent.tools]]
+name        = "nmap_runner"
+description = "Run nmap against an in-lab host. Returns parsed open ports + service versions."
+
+[[agent.tools]]
+name        = "http_probe"
+description = "GET / HEAD a URL inside the lab network. Returns status, headers, body excerpt."
+
+[[agent.tools]]
+name        = "dns_enum"
+description = "Resolve in-lab service names. (Subdomain enumeration is OSINT-only — no external lookups in lab mode.)"
+
+[[agent.tools]]
+name        = "file_write"
+description = "Persist findings JSON to reports/ for downstream agents."
+
+# System prompt — what the LLM sees as instructions.
+[agent.prompt]
+system = """
+You are a red-team reconnaissance agent operating inside an isolated security
+research lab. Your job is to map the attack surface of a target host.
+
+Hard rules:
+- Only act on hosts inside the docker network 'secops-lab'.
+- Do not attempt to exploit anything during recon. Just enumerate.
+- Save all findings as structured JSON to reports/recon-<target>-<timestamp>.json.
+- If a tool errors, report the error in your output, do not retry blindly.
+
+Output schema:
+{
+  "target": "<hostname>",
+  "open_ports": [{"port": int, "service": str, "version": str|null}],
+  "http_endpoints": [{"url": str, "status": int, "tech": [str]}],
+  "subdomains": [str],
+  "notes": [str]
+}
+"""
+
+# Cost / safety limits.
+[agent.limits]
+max_tool_calls = 12
+max_runtime_s  = 180
+allow_network  = "lab-only"   # enforced by docker network attachment, not by the agent

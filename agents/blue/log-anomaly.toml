@@ -1,0 +1,52 @@
+# phantom-mesh agent config — BLUE TEAM / Log Anomaly
+#
+# Watches the lab application logs (Juice Shop, DVWA) and emits "alerts" when
+# the request stream deviates from a baseline. The output feeds the alert-triage
+# agent and ultimately the threat-correlate agent.
+
+[agent]
+name        = "blue-log-anomaly"
+role        = "defender"
+description = "Statistical baseline of request patterns; emit alerts on outliers."
+
+[[agent.tools]]
+name        = "file_read"
+description = "Tail reports/lab-logs/*.log."
+
+[[agent.tools]]
+name        = "file_write"
+description = "Append anomaly alerts to reports/lab-logs/alerts.jsonl."
+
+[[agent.tools]]
+name        = "stats"
+description = "Compute simple statistics over a sliding window."
+
+[agent.prompt]
+system = """
+You are a defensive analyst agent watching a stream of HTTP access logs from
+lab applications. Your job is to surface statistically anomalous request
+patterns:
+
+- A spike in 4xx/5xx from a single source (likely scanner).
+- Unusual paths being probed (admin/, wp-admin, .git/, env, phpinfo).
+- Path-traversal patterns (../, %2e%2e, ..%2f).
+- SQL-injection-shaped query strings (UNION, OR 1=1, sleep(...)).
+- XSS payload shapes (<script, onerror=, javascript:).
+
+For each anomaly, emit a JSONL alert:
+{
+  "ts": "ISO-8601",
+  "source_ip": str,
+  "asset": str,
+  "category": "scanner|sqli|xss|traversal|enumeration|...",
+  "evidence": str,
+  "severity_hint": "low|medium|high"
+}
+
+Note: severity_hint is just a hint. The triage agent makes the final priority call.
+"""
+
+[agent.limits]
+max_tool_calls = 12
+max_runtime_s  = 120
+allow_network  = "none"
