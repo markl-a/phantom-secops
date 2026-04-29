@@ -1,0 +1,50 @@
+{
+  "target": "http://juice-shop:3000/",
+  "findings": [
+    {
+      "id": "tech/jquery-version",
+      "cve": "CVE-2020-11023",
+      "severity": "medium",
+      "title": "Outdated jQuery 2.1.4 with known DOM-XSS",
+      "evidence": "Server returns jQuery 2.1.4 in /assets/index-D8gWmcWA.js",
+      "tool": "nuclei",
+      "raw": "{\"template-id\":\"tech/jquery-version\",\"info\":{\"name\":\"jQuery Version Detection\",\"severity\":\"medium\",\"classification\":{\"cve-id\":[\"CVE-2020-11023\"]}}}"
+    },
+    {
+      "id": "exposures/admin-panel",
+      "cve": null,
+      "severity": "medium",
+      "title": "Administration UI exposed without auth",
+      "evidence": "GET /administration → 200, contains 'Administration'",
+      "tool": "nuclei",
+      "raw": "{\"template-id\":\"exposures/admin-panel\",\"matched-at\":\"http://juice-shop:3000/administration\"}"
+    },
+    {
+      "id": "headers/missing-csp",
+      "cve": null,
+      "severity": "low",
+      "title": "Content-Security-Policy header missing",
+      "evidence": "Response from / lacks CSP header",
+      "tool": "nuclei",
+      "raw": "{\"template-id\":\"headers/missing-csp\"}"
+    },
+    {
+      "id": "headers/missing-x-frame-options",
+      "cve": null,
+      "severity": "low",
+      "title": "X-Frame-Options header missing (clickjacking)",
+      "evidence": "Response from / lacks X-Frame-Options",
+      "tool": "nuclei",
+      "raw": "{\"template-id\":\"headers/missing-x-frame-options\"}"
+    },
+    {
+      "id": "exposures/server-info",
+      "cve": null,
+      "severity": "info",
+      "title": "Express version disclosed in headers",
+      "evidence": "X-Powered-By: Express",
+      "tool": "nuclei",
+      "raw": "{\"template-id\":\"exposures/server-info\"}"
+    }
+  ]
+}

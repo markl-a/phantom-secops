@@ -46,24 +46,51 @@ This repo is a **research playground** — not a production tool, not a 0-day we
 
 ## Quick start
 
+### Mock mode — no docker, no API key, runs anywhere in <1 second
+
 ```bash
 git clone https://github.com/markl-a/phantom-secops
 cd phantom-secops
-
-# 1. Bring up the isolated lab (Juice Shop + DVWA on a private docker network)
-docker compose up -d
-
-# 2. Make sure phantom is installed (see https://github.com/markl-a/phantom-mesh)
-phantom --version
-
-# 3. Run the full kill-chain scenario
-phantom run scenarios/full-kill-chain.md
-
-# 4. Inspect the reports
-ls reports/
+make demo-mock
 ```
 
-The lab targets are bound to a private docker network. They are **not exposed to your host or the internet**.
+Output:
+```
+→ phantom-secops kill-chain :: target=juice-shop mock=True
+  [t+  0.0s] red-recon          → 1 open ports
+  [t+  0.0s] red-vuln-scan      → 5 findings (1 medium, 2 low, ...)
+  [t+  0.0s] red-exploit-suggest done
+  [t+  0.0s] blue-log-anomaly   → 21 raw alerts
+  [t+  0.0s] blue-alert-triage  → 5 triaged groups
+  [t+  0.0s] blue-threat-correlate → 1 actor(s)
+  [t+  0.0s] done
+
+→ artifacts: reports/runs/<ts>/{pentest-report.md, incident-report.md,
+                                recon.json, vuln-scan.json,
+                                alerts.jsonl, triage-queue.jsonl,
+                                kill-chains.jsonl, exploit-suggestions.md}
+```
+
+This runs the full red/blue agent pipeline on canned data. Use it to
+explore the artifact shapes and the report templates without bringing up
+docker. Tests run via `make test` (7 unit tests covering pattern matchers
+and triage logic).
+
+### Live mode — against the docker lab
+
+```bash
+make lab-up                # bring up Juice Shop + DVWA on the private docker network
+make demo                  # full kill-chain against the live lab
+make lab-down              # tear down
+
+# Optional: with phantom-mesh LLM-driven prose
+phantom serve &            # phantom-mesh HTTP API at :7878
+make demo  # runner picks it up if phantom is reachable
+```
+
+The lab targets are bound to a private docker network. They are **not exposed
+to your host or the internet** (see `docker-compose.yml`). All `Makefile`
+targets are listed via `make help`.
 
 ---
 
@@ -105,13 +132,16 @@ phantom-secops/
 
 | Component | State |
 |---|---|
-| Docker compose lab (Juice Shop, DVWA) | ✅ working |
-| Recon agent (Nmap orchestration) | ✅ working |
-| Vuln scan agent (Nuclei) | ⚙️ in progress |
-| Exploit suggester (CVE → POC text) | 🚧 design done, code WIP |
-| Blue team alert triage | ⚙️ in progress |
-| Side-by-side red/blue report | 🚧 design done |
-| End-to-end kill-chain demo | 🚧 D-day target: 2026-05-05 |
+| Docker compose lab (Juice Shop, DVWA) | ✅ syntax verified, runs |
+| Mock-mode end-to-end demo (`make demo-mock`) | ✅ runnable on any machine, <1s |
+| Recon agent (Nmap orchestration) | ✅ working with lab-target gate |
+| Vuln scan agent (Nuclei wrapper) | ⚙️ wrapper done; live integration WIP |
+| Exploit suggester (CVE → POC text) | ✅ template-driven prose; LLM-driven opt-in via `--use-llm` |
+| Blue team log-anomaly (URL-decoded pattern matchers) | ✅ working, 7 unit tests pass |
+| Blue team triage + correlation (group by actor + ATT&CK phase) | ✅ working |
+| Side-by-side red/blue report (pentest + incident markdown) | ✅ working |
+| Tests (`make test`) | ✅ 7 unit tests passing |
+| Live-mode kill-chain (against running docker lab) | ⚙️ partial — recon path works; nuclei path needs container with nuclei pre-installed |
 
 ---
 

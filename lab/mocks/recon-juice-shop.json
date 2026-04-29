@@ -1,0 +1,29 @@
+{
+  "target": "juice-shop",
+  "scan_type": "nmap",
+  "open_ports": [
+    {
+      "port": 3000,
+      "protocol": "tcp",
+      "service": "http",
+      "version": "Node.js Express framework"
+    }
+  ],
+  "http_endpoints": [
+    {
+      "url": "http://juice-shop:3000/",
+      "status": 200,
+      "tech": ["Express", "AngularJS", "jQuery 2.1.4"]
+    },
+    {
+      "url": "http://juice-shop:3000/administration",
+      "status": 200,
+      "tech": ["Express", "AngularJS"]
+    }
+  ],
+  "subdomains": [],
+  "notes": [
+    "Juice Shop responds with `X-Recruiting` header — flagged as informational.",
+    "Administration UI reachable without auth at the network layer."
+  ]
+}

@@ -1,0 +1,8 @@
+# Dev dependencies for phantom-secops
+#
+# Runtime dependencies are intentionally minimal — the demo-mock path runs
+# on a stock Python 3.10+ install. Only the live-mode lab integration needs
+# additional tools (nmap, docker, nuclei) and those are external binaries,
+# not Python packages.
+
+pytest>=7.0
