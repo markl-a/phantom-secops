@@ -3,30 +3,35 @@
 ## Layers
 
 ```
+ORCHESTRATORS (interchangeable)
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ Python       │ │ Claude Code  │ │ phantom-mesh │ │ OpenAI / etc │
+│ run_kill_    │ │ subagent     │ │ workflow     │ │ via MCP      │
+│ chain.py     │ │ (.claude/)   │ │ (TOML)       │ │              │
+└──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+       │ direct         │ MCP            │ MCP            │ MCP
+       │ Python call    │ stdio          │ stdio          │ stdio/http
+       └────────┬───────┴────────────────┴────────────────┘
+                ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│                         phantom-mesh runtime                        │
-│  ─────────────────────────────────────────────────────────────────  │
-│  - LLM provider routing (multi-provider fallback)                   │
-│  - Tool calling loop (TOML-defined tools)                           │
-│  - Cost tracking                                                    │
-│  - Inter-agent message passing                                      │
+│  MCP server: phantom-secops          (docs/MCP-INTERFACE.md)       │
+│  ───────────────────────────────────────────────────────────────   │
+│  11 tools (recon_host, vuln_scan_web, scan_logs_for_anomalies,     │
+│            triage_alerts, correlate_threats, suggest_exploit_prose,│
+│            compose_pentest_report, compose_incident_report,        │
+│            lab_status, lab_up, lab_down)                           │
+│  2 resource schemes (phantom-secops://runs/…  and  …/mocks/…)      │
 └─────────────┬──────────────────────────────────┬───────────────────┘
               │                                  │
-        ┌─────▼────────┐                  ┌──────▼───────┐
-        │  RED agents  │                  │  BLUE agents │
-        │  (TOML-cfgd) │                  │  (TOML-cfgd) │
-        └─────┬────────┘                  └──────┬───────┘
-              │                                  │
-        ┌─────▼────────┐                  ┌──────▼───────┐
-        │ Tool wrappers│                  │ Tool wrappers│
-        │ (Python,     │                  │ (Python,     │
-        │  call into   │                  │  read logs / │
-        │  attacker    │                  │  emit alerts)│
-        │  container)  │                  │              │
-        └─────┬────────┘                  └──────┬───────┘
-              │                                  │
-              │  (docker exec into attacker)     │  (docker socket → log volume)
               ▼                                  ▼
+┌─────────────────────────────────────┐ ┌─────────────────────────────┐
+│ phantom_secops/core.py              │ │ phantom_secops/mcp/safety.py│
+│ Pure functions: red+blue pipeline   │ │ Lab gate, prose validator   │
+│ Templates → optional LLM provider   │ │ Single source of truth for  │
+│ (phantom_secops/llm/)               │ │ "is this allowed"           │
+└─────────────┬───────────────────────┘ └─────────────────────────────┘
+              │ tools/{nmap,nuclei}_runner.py
+              ▼  (docker exec into attacker container)
 ┌────────────────────────────────────────────────────────────────────┐
 │                       secops-lab docker network                     │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
@@ -37,6 +42,14 @@
 │  └──────────────┘  └──────────────┘  └──────────────┘              │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+## Why MCP first
+
+The earlier design wired `run_kill_chain.py` directly to phantom-mesh's HTTP API. That had two problems: phantom-mesh's binary is closed-source until June 2026 (so we'd commit to their schedule), and every additional runtime — Cursor, OpenAI Agents, Continue — would need its own bespoke adapter.
+
+MCP is supported by Anthropic, OpenAI, Cursor, Continue, and is on phantom-mesh's roadmap. Writing the tool layer once as an MCP server gives runtime independence: phantom-mesh becomes one client among many. The cost — losing phantom-mesh's cross-provider cost tracking out of the box — is acceptable for a research playground; an MCP server can add lightweight token-usage logging later if needed.
+
+Defense-in-depth follows naturally from the layering: every active tool defers to `phantom_secops/mcp/safety.py` for lab-target validation, so a misbehaving LLM, a stale TOML, or a buggy adapter can't bypass the gate by going around the MCP boundary.
 
 ## Why phantom-mesh
 
