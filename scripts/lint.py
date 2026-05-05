@@ -20,10 +20,15 @@ def main() -> int:
     errors: list[str] = []
 
     print("→ python syntax check...")
-    py_files = list(REPO.glob("tools/*.py")) + list(REPO.glob("scenarios/*.py")) + list(REPO.glob("tests/*.py"))
+    py_files = (
+        list(REPO.glob("tools/*.py"))
+        + list(REPO.glob("scenarios/*.py"))
+        + list(REPO.glob("tests/*.py"))
+        + list(REPO.glob("phantom_secops/**/*.py"))
+    )
     for f in py_files:
         try:
-            ast.parse(f.read_text())
+            ast.parse(f.read_text(encoding="utf-8"))
         except SyntaxError as exc:
             errors.append(f"  ✗ {f.relative_to(REPO)}: {exc}")
     if not errors:
@@ -36,7 +41,7 @@ def main() -> int:
         toml_errors_before = len(errors)
         for f in toml_files:
             try:
-                tomllib.loads(f.read_text())
+                tomllib.loads(f.read_text(encoding="utf-8"))
             except Exception as exc:
                 errors.append(f"  ✗ {f.relative_to(REPO)}: {exc}")
         if len(errors) == toml_errors_before:
@@ -45,7 +50,7 @@ def main() -> int:
         # Python <3.11: just confirm files are readable.
         for f in toml_files:
             try:
-                _ = f.read_text()
+                _ = f.read_text(encoding="utf-8")
             except Exception as exc:
                 errors.append(f"  ✗ {f.relative_to(REPO)}: {exc}")
         print(f"  ✓ {len(toml_files)} TOML files readable (skip: tomllib needs Python 3.11+)")

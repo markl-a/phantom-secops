@@ -1,30 +1,38 @@
 # phantom-mesh agent config — RED TEAM / Recon
 #
 # Discovers attack surface for a target running in the secops-lab docker network.
-# Outputs structured findings (open ports, service banners, subdomains, headers)
-# to be consumed by the vuln-scan agent.
+# Outputs structured findings (open ports, service banners) to be consumed by
+# the vuln-scan agent.
+#
+# Tool layer is the phantom-secops MCP server (see docs/MCP-INTERFACE.md).
+# The exact format of the MCP reference (`server` field below) is provisional —
+# it will be reconciled with phantom-mesh's MCP integration spec once that
+# ships (Phase 1–2 crates, expected May–June 2026). Until then, treat this
+# TOML as documentation; the runtime path uses scenarios/run_kill_chain.py
+# or the MCP server directly via `make mcp-serve`.
 
 [agent]
 name        = "red-recon"
 role        = "attacker"
-description = "Active and passive reconnaissance. Open ports, service banners, web tech stack, subdomain enum."
+description = "Active reconnaissance. Open ports, service banners."
 
-# Tools available. Each maps to a wrapper in tools/.
-[[agent.tools]]
-name        = "nmap_runner"
-description = "Run nmap against an in-lab host. Returns parsed open ports + service versions."
+[mcp]
+servers = ["phantom-secops"]
 
 [[agent.tools]]
-name        = "http_probe"
-description = "GET / HEAD a URL inside the lab network. Returns status, headers, body excerpt."
+name        = "recon_host"
+server      = "phantom-secops"
+description = "Scan an in-lab host with nmap. Returns parsed open ports + service versions. Refuses non-lab targets."
 
 [[agent.tools]]
-name        = "dns_enum"
-description = "Resolve in-lab service names. (Subdomain enumeration is OSINT-only — no external lookups in lab mode.)"
+name        = "lab_status"
+server      = "phantom-secops"
+description = "Verify the lab is up before scanning."
 
+# phantom-mesh built-in (no `server` field).
 [[agent.tools]]
 name        = "file_write"
-description = "Persist findings JSON to reports/ for downstream agents."
+description = "Persist findings JSON to reports/runs/<ts>/recon.json for downstream agents."
 
 # System prompt — what the LLM sees as instructions.
 [agent.prompt]
@@ -33,23 +41,27 @@ You are a red-team reconnaissance agent operating inside an isolated security
 research lab. Your job is to map the attack surface of a target host.
 
 Hard rules:
-- Only act on hosts inside the docker network 'secops-lab'.
+- Only act on hosts inside the docker network 'secops-lab'. The MCP tool
+  refuses non-lab targets at the protocol layer; do not try to bypass.
 - Do not attempt to exploit anything during recon. Just enumerate.
-- Save all findings as structured JSON to reports/recon-<target>-<timestamp>.json.
+- Save findings as structured JSON to reports/runs/<ts>/recon.json.
 - If a tool errors, report the error in your output, do not retry blindly.
 
-Output schema:
+Workflow:
+1. Call lab_status to confirm services are running.
+2. Call recon_host(target=<service-name>) to scan.
+3. Persist the result via file_write.
+
+Output schema (matches the recon_host MCP tool's return shape):
 {
   "target": "<hostname>",
-  "open_ports": [{"port": int, "service": str, "version": str|null}],
-  "http_endpoints": [{"url": str, "status": int, "tech": [str]}],
-  "subdomains": [str],
-  "notes": [str]
+  "open_ports": [{"port": int, "protocol": str, "service": str, "version": str|null}],
+  "scan_type": "nmap"
 }
 """
 
 # Cost / safety limits.
 [agent.limits]
-max_tool_calls = 12
+max_tool_calls = 8
 max_runtime_s  = 180
-allow_network  = "lab-only"   # enforced by docker network attachment, not by the agent
+allow_network  = "lab-only"   # enforced by docker network attachment + MCP gate

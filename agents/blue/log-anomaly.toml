@@ -1,52 +1,46 @@
 # phantom-mesh agent config — BLUE TEAM / Log Anomaly
 #
 # Watches the lab application logs (Juice Shop, DVWA) and emits "alerts" when
-# the request stream deviates from a baseline. The output feeds the alert-triage
-# agent and ultimately the threat-correlate agent.
+# the request stream deviates from a baseline. Output feeds the alert-triage
+# agent.
 
 [agent]
 name        = "blue-log-anomaly"
 role        = "defender"
-description = "Statistical baseline of request patterns; emit alerts on outliers."
+description = "Pattern-match request log; emit alerts on injection / scanner / traversal patterns."
+
+[mcp]
+servers = ["phantom-secops"]
 
 [[agent.tools]]
-name        = "file_read"
-description = "Tail reports/lab-logs/*.log."
+name        = "scan_logs_for_anomalies"
+server      = "phantom-secops"
+description = "URL-decode each log line, pattern-match, emit raw alerts. Read-only."
 
 [[agent.tools]]
 name        = "file_write"
-description = "Append anomaly alerts to reports/lab-logs/alerts.jsonl."
-
-[[agent.tools]]
-name        = "stats"
-description = "Compute simple statistics over a sliding window."
+description = "Persist raw alerts to reports/runs/<ts>/alerts.jsonl."
 
 [agent.prompt]
 system = """
 You are a defensive analyst agent watching a stream of HTTP access logs from
-lab applications. Your job is to surface statistically anomalous request
-patterns:
+lab applications. Call scan_logs_for_anomalies to surface request patterns
+matching:
 
-- A spike in 4xx/5xx from a single source (likely scanner).
-- Unusual paths being probed (admin/, wp-admin, .git/, env, phpinfo).
 - Path-traversal patterns (../, %2e%2e, ..%2f).
 - SQL-injection-shaped query strings (UNION, OR 1=1, sleep(...)).
 - XSS payload shapes (<script, onerror=, javascript:).
+- Admin/sensitive paths (admin/, wp-admin, .git/, .env).
+- Known scanner User-Agents (nikto, nmap, sqlmap, nuclei).
 
-For each anomaly, emit a JSONL alert:
-{
-  "ts": "ISO-8601",
-  "source_ip": str,
-  "asset": str,
-  "category": "scanner|sqli|xss|traversal|enumeration|...",
-  "evidence": str,
-  "severity_hint": "low|medium|high"
-}
+The MCP tool URL-decodes each line before matching, so encoded payloads are
+not missed. severity_hint on each alert is just a hint — the triage agent
+makes the final priority call.
 
-Note: severity_hint is just a hint. The triage agent makes the final priority call.
+Output is the JSONL stream returned by the tool. Persist it via file_write.
 """
 
 [agent.limits]
-max_tool_calls = 12
-max_runtime_s  = 120
+max_tool_calls = 4
+max_runtime_s  = 60
 allow_network  = "none"

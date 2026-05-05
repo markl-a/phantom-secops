@@ -12,8 +12,13 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from phantom_secops.mcp import safety  # noqa: E402
 
 ATTACKER_CONTAINER = "secops-attacker"
 LAB_NETWORK = "secops-lab"
@@ -21,10 +26,10 @@ LAB_NETWORK = "secops-lab"
 
 def run(target: str, ports: str = "top-1000", scan_type: str = "-sV") -> dict[str, Any]:
     """Run nmap against an in-lab target. Refuses non-lab targets."""
-    if not _target_in_lab(target):
+    if not safety.is_lab_service(target):
         return {
             "error": f"refusing to scan '{target}' — not a known lab service",
-            "lab_services": _known_lab_services(),
+            "lab_services": list(safety.KNOWN_LAB_SERVICES),
         }
 
     port_flag = "--top-ports 1000" if ports == "top-1000" else f"-p {shlex.quote(ports)}"
@@ -49,13 +54,9 @@ def run(target: str, ports: str = "top-1000", scan_type: str = "-sV") -> dict[st
     return _parse_nmap_xml(result.stdout, target)
 
 
-def _target_in_lab(target: str) -> bool:
-    """Refuse anything that isn't a known lab service name."""
-    return target in _known_lab_services()
-
-
 def _known_lab_services() -> list[str]:
-    return ["juice-shop", "dvwa", "dvwa-db", "metasploitable", "attacker"]
+    """Compatibility shim for tests; prefer phantom_secops.mcp.safety."""
+    return list(safety.KNOWN_LAB_SERVICES)
 
 
 def _parse_nmap_xml(xml_text: str, target: str) -> dict[str, Any]:
