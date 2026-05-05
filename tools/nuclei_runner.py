@@ -9,17 +9,22 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
+from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from phantom_secops.mcp import safety  # noqa: E402
 
 ATTACKER_CONTAINER = "secops-attacker"
 
 
 def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: int = 90) -> dict[str, Any]:
     """Run nuclei against a lab URL. Returns parsed findings."""
-    if not _is_lab_url(target_url):
+    if not safety.is_lab_url(target_url):
         return {
             "error": f"refusing to scan '{target_url}' — must point at an in-lab host",
-            "allowed_hosts": ["juice-shop", "dvwa", "metasploitable"],
+            "allowed_hosts": list(safety.KNOWN_LAB_SERVICES),
         }
 
     # nuclei JSONL output (-jsonl) — one finding per line.
@@ -63,10 +68,6 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
         "target": target_url,
         "findings": findings,
     }
-
-
-def _is_lab_url(url: str) -> bool:
-    return any(host in url for host in ("juice-shop", "dvwa", "metasploitable"))
 
 
 def _extract_cve(info: dict[str, Any]) -> str | None:

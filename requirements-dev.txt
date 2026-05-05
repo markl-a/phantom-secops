@@ -1,8 +1,15 @@
 # Dev dependencies for phantom-secops
 #
-# Runtime dependencies are intentionally minimal — the demo-mock path runs
-# on a stock Python 3.10+ install. Only the live-mode lab integration needs
-# additional tools (nmap, docker, nuclei) and those are external binaries,
-# not Python packages.
+# Runtime baseline is intentionally minimal: the demo-mock path runs on a
+# stock Python 3.11+ install with only stdlib. Live-mode lab integration
+# additionally needs nmap/docker/nuclei (external binaries, not pip packages).
+#
+# The `mcp` package is required for the MCP server (Phase 1+) and for the
+# tests/test_mcp_protocol.py smoke tests. Mark optional via pytest.importorskip
+# so the no-deps lane in CI still passes.
 
 pytest>=7.0
+pytest-asyncio>=0.23
+
+# MCP server runtime — Anthropic's official Python SDK includes FastMCP.
+mcp[cli]>=1.2

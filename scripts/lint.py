@@ -20,7 +20,12 @@ def main() -> int:
     errors: list[str] = []
 
     print("→ python syntax check...")
-    py_files = list(REPO.glob("tools/*.py")) + list(REPO.glob("scenarios/*.py")) + list(REPO.glob("tests/*.py"))
+    py_files = (
+        list(REPO.glob("tools/*.py"))
+        + list(REPO.glob("scenarios/*.py"))
+        + list(REPO.glob("tests/*.py"))
+        + list(REPO.glob("phantom_secops/**/*.py"))
+    )
     for f in py_files:
         try:
             ast.parse(f.read_text())

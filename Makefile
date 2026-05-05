@@ -7,7 +7,7 @@
 # `make test`        — run pytest against tool wrappers.
 # `make lint`        — basic checks (toml validation, python syntax).
 
-.PHONY: help demo demo-mock lab-up lab-down lab-status test lint clean
+.PHONY: help demo demo-mock lab-up lab-down lab-status test lint clean mcp-serve mcp-dev
 
 help:
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -45,6 +45,12 @@ test:  ## Run tests (uses pytest if available, else unittest)
 
 lint:  ## Basic syntax / toml validation
 	@python3 scripts/lint.py
+
+mcp-serve:  ## Run the MCP server over stdio (for agent clients)
+	python3 -m phantom_secops.mcp.server
+
+mcp-dev:  ## Run the MCP server under the official inspector (requires mcp[cli])
+	mcp dev phantom_secops/mcp/server.py
 
 clean:  ## Remove generated reports + python cache
 	rm -rf reports/runs/* reports/lab-logs/* __pycache__ .pytest_cache
