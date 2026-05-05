@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs when a new commit lands on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (stdlib only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run lint
+        run: python3 scripts/lint.py
+
+  test-no-deps:
+    name: tests (mock path is dep-free)
+    # Verifies the README claim that demo-mock runs on a stock Python install.
+    # Only pytest is installed; tests/test_mcp_protocol.py skips itself via
+    # pytest.importorskip("mcp"), tests/test_llm_provider.py exercises only
+    # the NullProvider path that needs no extra deps.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest only
+        run: pip install 'pytest>=7.0' 'pytest-asyncio>=0.23'
+      - name: Run tests
+        run: make test
+      - name: Run mock-mode demo
+        run: make demo-mock
+
+  test-full:
+    name: tests (full deps, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dev deps
+        run: pip install -r requirements-dev.txt
+      - name: Run lint
+        run: python3 scripts/lint.py
+      - name: Run tests
+        run: make test
+      - name: Run mock-mode demo
+        run: make demo-mock
+      - name: Run mock-mode demo with provider plumbing
+        # Exercises --use-llm with the null provider so the LLM wiring is
+        # smoke-tested even without an API key.
+        run: python3 scenarios/run_kill_chain.py --target juice-shop --mock --use-llm --llm none

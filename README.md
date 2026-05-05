@@ -3,6 +3,7 @@
 > **Multi-agent SecOps research playground — runtime-agnostic.**
 > Cooperating red/blue agents drive recon, triage, correlation, and reporting against an isolated lab. The tool layer is exposed as an MCP server, so [phantom-mesh](https://github.com/markl-a/phantom-mesh), Claude Code, Cursor, OpenAI Agents SDK, or any MCP-compatible runtime can drive the same workflow.
 
+[![CI](https://github.com/markl-a/phantom-secops/actions/workflows/ci.yml/badge.svg)](https://github.com/markl-a/phantom-secops/actions/workflows/ci.yml)
 [![Powered by phantom-mesh](https://img.shields.io/badge/powered%20by-phantom--mesh-purple)](https://github.com/markl-a/phantom-mesh)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![Lab](https://img.shields.io/badge/targets-OWASP%20Juice%20Shop%20%7C%20DVWA-orange)](docker-compose.yml)
