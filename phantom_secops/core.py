@@ -44,7 +44,7 @@ def run_recon(target: str, mock: bool = False) -> dict[str, Any]:
     delegates to tools.nmap_runner (which shells into the attacker container).
     """
     if mock:
-        return json.loads((MOCKS_DIR / "recon-juice-shop.json").read_text())
+        return json.loads((MOCKS_DIR / "recon-juice-shop.json").read_text(encoding="utf-8"))
     # Lazy import: tools/ requires docker, not needed in mock mode.
     from tools import nmap_runner  # noqa: PLC0415
     return nmap_runner.run(target)
@@ -54,7 +54,7 @@ def run_vuln_scan(target: str, recon: dict[str, Any], mock: bool = False) -> dic
     """Vuln scan a lab target using nuclei. Mock mode returns canned findings."""
     _ = recon  # live mode reads recon.open_ports to pick HTTP ports
     if mock:
-        return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text())
+        return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text(encoding="utf-8"))
     return {"target": target, "findings": []}
 
 
@@ -172,7 +172,7 @@ def scan_logs_for_anomalies(
         return {"alerts": [], "source": str(path)}
 
     alerts: list[dict[str, Any]] = []
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         decoded = unquote(line)
         for category, pat, sev in _LOG_PATTERNS:
             if re.search(pat, decoded, re.I):

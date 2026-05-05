@@ -72,12 +72,12 @@ def main() -> int:
     # ─── Red pipeline ─────────────────────────────────────────────────────
     event("red-recon  starts")
     recon = core.run_recon(args.target, mock=args.mock)
-    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False))
+    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False), encoding="utf-8")
     event(f"red-recon  → {len(recon.get('open_ports', []))} open ports")
 
     event("red-vuln-scan  starts")
     vuln = core.run_vuln_scan(args.target, recon, mock=args.mock)
-    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False))
+    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
     event(f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
 
     event("red-exploit-suggest  composing prose")
@@ -86,36 +86,36 @@ def main() -> int:
         use_llm=args.use_llm,
         provider=provider,
     )
-    (out_dir / "exploit-suggestions.md").write_text(suggest["markdown"])
+    (out_dir / "exploit-suggestions.md").write_text(suggest["markdown"], encoding="utf-8")
     event("red-exploit-suggest  done")
 
     # ─── Blue pipeline ────────────────────────────────────────────────────
     event("blue-log-anomaly  scanning canned attack log")
     anomaly = core.scan_logs_for_anomalies(source="mock" if args.mock else "lab_logs")
     alerts = anomaly["alerts"]
-    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts))
+    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
     event(f"blue-log-anomaly  → {len(alerts)} raw alerts")
 
     event("blue-alert-triage  classify + dedupe")
     triage = core.triage_alerts(alerts)
     triaged = triage["triaged"]
-    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged))
+    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged), encoding="utf-8")
     event(f"blue-alert-triage  → {len(triaged)} triaged groups")
 
     event("blue-threat-correlate  reconstruct kill chain")
     correlation = core.correlate_threats(triaged)
     actors = correlation["actors"]
-    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in actors))
+    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in actors), encoding="utf-8")
     event(f"blue-threat-correlate  → {len(actors)} actor(s)")
 
     # ─── Reports ─────────────────────────────────────────────────────────
     event("red-pentest-report  composing markdown")
     pentest = core.compose_pentest_report(recon, vuln, suggest["markdown"], timeline)
-    (out_dir / "pentest-report.md").write_text(pentest["markdown"])
+    (out_dir / "pentest-report.md").write_text(pentest["markdown"], encoding="utf-8")
 
     event("blue-incident-report  composing markdown")
     incident = core.compose_incident_report(triaged, actors, timeline)
-    (out_dir / "incident-report.md").write_text(incident["markdown"])
+    (out_dir / "incident-report.md").write_text(incident["markdown"], encoding="utf-8")
 
     event("done")
     print()
