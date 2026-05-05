@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "phantom-secops": {
+      "command": "python3",
+      "args": ["-m", "phantom_secops.mcp.server"],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  }
+}

@@ -1,24 +1,24 @@
 # phantom-mesh agent config — RED TEAM / Vuln Scan
 #
-# Consumes recon findings, runs Nuclei templates and Nikto against in-scope
-# endpoints, and outputs a list of likely vulnerabilities.
+# Consumes recon findings, runs Nuclei against in-scope endpoints, and outputs
+# a list of likely vulnerabilities. See docs/MCP-INTERFACE.md for the tool layer.
 
 [agent]
 name        = "red-vuln-scan"
 role        = "attacker"
-description = "Active vulnerability scanning. Nuclei + Nikto. Reads recon JSON, writes findings JSON."
+description = "Active vulnerability scanning via nuclei. Reads recon JSON, writes findings JSON."
+
+[mcp]
+servers = ["phantom-secops"]
 
 [[agent.tools]]
-name        = "nuclei_runner"
-description = "Run nuclei with the public templates against an in-lab URL. Returns matched template IDs + severity."
-
-[[agent.tools]]
-name        = "nikto_runner"
-description = "Run nikto against an in-lab web service. Returns parsed findings."
+name        = "vuln_scan_web"
+server      = "phantom-secops"
+description = "Run nuclei with public templates against an in-lab URL. Returns matched template IDs + severity. Refuses non-lab URLs."
 
 [[agent.tools]]
 name        = "file_read"
-description = "Read recon JSON from reports/."
+description = "Read recon JSON from reports/runs/<ts>/recon.json."
 
 [[agent.tools]]
 name        = "file_write"
@@ -27,26 +27,25 @@ description = "Persist vuln findings JSON for the exploit-suggester agent."
 [agent.prompt]
 system = """
 You are a red-team vulnerability scanning agent. Read the recon JSON identified
-by the orchestrator, choose appropriate scanners for each open service, run
-them, and write a consolidated findings file.
+by the orchestrator, choose appropriate scan inputs for each open service, run
+the vuln_scan_web MCP tool, and write a consolidated findings file.
 
 Hard rules:
 - Only scan hosts identified by the recon agent (already lab-confirmed).
 - For HTTPS, accept self-signed certs (these are lab targets).
-- Throttle: do not run more than 2 scanners concurrently against the same target.
 - For each finding, record: cve_id (if any), title, severity, evidence, raw tool output snippet.
 
-Output schema:
+Output schema (matches vuln_scan_web's return shape):
 {
   "target": "<hostname>",
   "findings": [
     {
-      "id": "<nuclei-template or nikto-id>",
+      "id": "<nuclei-template>",
       "cve": "CVE-YYYY-NNNNN" | null,
       "severity": "info|low|medium|high|critical",
       "title": str,
       "evidence": str,
-      "tool": "nuclei|nikto",
+      "tool": "nuclei",
       "raw": str
     }
   ]
@@ -54,6 +53,6 @@ Output schema:
 """
 
 [agent.limits]
-max_tool_calls = 16
+max_tool_calls = 12
 max_runtime_s  = 300
 allow_network  = "lab-only"

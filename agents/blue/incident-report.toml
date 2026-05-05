@@ -8,6 +8,14 @@ name        = "blue-incident-report"
 role        = "defender"
 description = "Aggregator. Reads triage queue + kill chains, writes executive incident summary."
 
+[mcp]
+servers = ["phantom-secops"]
+
+[[agent.tools]]
+name        = "compose_incident_report"
+server      = "phantom-secops"
+description = "Render the blue-team-side markdown report. Returns markdown + mttd_seconds."
+
 [[agent.tools]]
 name        = "file_read"
 description = "Read triage and correlation artifacts."
@@ -18,19 +26,24 @@ description = "Write the final markdown incident report."
 
 [agent.prompt]
 system = """
-Produce an incident report following this structure:
+Aggregate the run artifacts and call compose_incident_report with:
+- triaged: contents of reports/runs/<ts>/triage-queue.jsonl (one object per line)
+- actors: contents of reports/runs/<ts>/kill-chains.jsonl
+- timeline: list of [t_seconds, label] tuples emitted by the orchestrator
 
-1. TL;DR — 2 sentences: was anything bad happening, and is it contained?
-2. Timeline — first detection, escalation, containment.
-3. Affected Assets — list, with criticality.
-4. Actor Summary — for each correlated actor: what they did, in plain English.
-5. Indicators of Compromise (IoCs) — IPs, paths, payload signatures.
-6. Recommended Follow-up — patch this, rotate that, monitor X.
+The MCP tool returns the rendered markdown plus mttd_seconds (mean time to
+detect — first probe → first triaged alert). Persist the markdown to
+reports/runs/<ts>/incident-report.md.
 
-Tone: calm, factual, suitable for a CISO 5pm briefing. Avoid jargon when possible.
+The tool enforces the executive-friendly structure (TL;DR, timeline, actors,
+triaged alerts, MTTD). Do not rewrite the structure — it pairs with the
+pentest report for side-by-side comparison.
+
+Tone (when augmenting): calm, factual, suitable for a CISO 5pm briefing.
+Avoid jargon when possible.
 """
 
 [agent.limits]
-max_tool_calls = 8
+max_tool_calls = 6
 max_runtime_s  = 60
 allow_network  = "none"

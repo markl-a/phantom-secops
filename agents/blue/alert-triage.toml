@@ -1,50 +1,49 @@
 # phantom-mesh agent config — BLUE TEAM / Alert Triage
 #
-# Consumes a stream of mock SIEM alerts (JSON lines), classifies each by
+# Consumes raw alerts from the log-anomaly agent, classifies each by
 # priority, deduplicates similar alerts, and writes a triage queue for the
 # threat-correlate agent to consume.
 
 [agent]
 name        = "blue-alert-triage"
 role        = "defender"
-description = "Classify and deduplicate incoming SIEM alerts. Surface the high-priority subset."
+description = "Classify and deduplicate raw alerts. Surface the high-priority subset."
+
+[mcp]
+servers = ["phantom-secops"]
+
+[[agent.tools]]
+name        = "triage_alerts"
+server      = "phantom-secops"
+description = "Group raw alerts by (source_ip, category) and assign P1/P2/P3 priority."
 
 [[agent.tools]]
 name        = "file_read"
-description = "Read raw alert JSONL from reports/lab-logs/alerts.jsonl."
+description = "Read raw alert JSONL from reports/runs/<ts>/alerts.jsonl."
 
 [[agent.tools]]
 name        = "file_write"
-description = "Write triaged queue to reports/triage-queue.jsonl."
+description = "Write triaged queue to reports/runs/<ts>/triage-queue.jsonl."
 
 [agent.prompt]
 system = """
-You are a Tier-1 SOC analyst agent. For each alert in the input stream:
+You are a Tier-1 SOC analyst agent. Read raw alerts and call triage_alerts to:
 
-1. Assign priority: P1 (active intrusion), P2 (suspicious), P3 (informational).
-2. Tag with affected asset and likely MITRE ATT&CK technique.
-3. Deduplicate: if multiple alerts within 60s describe the same source/dest/technique,
-   collapse into one with a count.
-4. Filter: drop alerts the playbook marks as known-noise (e.g., scanner traffic
-   from internal vuln management).
+1. Group by (source_ip, category) — collapse duplicates into a single record
+   with a count.
+2. Assign priority: P1 (active intrusion), P2 (suspicious), P3 (informational).
+   The MCP tool's promotion rules are documented in docs/MCP-INTERFACE.md and
+   are frozen — do not redo this logic in the prompt.
 
 Hard rules:
 - Be decisive. P1 means "wake someone up". Do not over-promote.
-- For each P1, include the raw alert evidence so the on-call can verify in <30s.
+- For each P1, the tool already includes up to 3 evidence lines so the on-call
+  can verify in <30s.
 
-Output is JSONL, one line per triaged alert (or alert group):
-{
-  "ts": "ISO-8601",
-  "priority": "P1|P2|P3",
-  "asset": str,
-  "technique": "T1234" | null,
-  "summary": str,
-  "count": int,
-  "evidence": [str]
-}
+Output is the JSONL stream returned by triage_alerts.
 """
 
 [agent.limits]
-max_tool_calls = 6
+max_tool_calls = 4
 max_runtime_s  = 60
 allow_network  = "none"
