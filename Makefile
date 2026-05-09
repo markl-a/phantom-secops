@@ -7,7 +7,7 @@
 # `make test`        — run pytest against tool wrappers.
 # `make lint`        — basic checks (toml validation, python syntax).
 
-.PHONY: help demo demo-mock lab-up lab-down lab-status test lint clean
+.PHONY: help demo demo-mock lab-up lab-down lab-status test lint mesh-sync mesh-mcp-config clean
 
 help:
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -45,6 +45,37 @@ test:  ## Run tests (uses pytest if available, else unittest)
 
 lint:  ## Basic syntax / toml validation
 	@python3 scripts/lint.py
+
+mesh-sync:  ## Render agents/*.toml to phantom-mesh format and print to stdout (review then paste into mac-coord agents.toml)
+	@for f in agents/red/recon.toml agents/blue/alert-triage.toml; do \
+		echo "# ─── rendered from $$f ────────────────────────────────────"; \
+		python3 scripts/render-mesh-agents.py $$f || exit 1; \
+		echo; \
+	done
+
+mesh-mcp-config:  ## Print [[mcp_servers]] entries to paste into phantom-mesh agents.toml
+	@cat <<'EOF'
+[[mcp_servers]]
+name    = "secops_recon"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+
+[[mcp_servers]]
+name    = "secops_log"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_log_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+
+[[mcp_servers]]
+name    = "secops_self_audit"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+EOF
 
 clean:  ## Remove generated reports + python cache
 	rm -rf reports/runs/* reports/lab-logs/* __pycache__ .pytest_cache

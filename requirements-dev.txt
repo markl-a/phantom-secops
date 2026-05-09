@@ -6,3 +6,4 @@
 # not Python packages.
 
 pytest>=7.0
+mcp>=1.0,<2.0

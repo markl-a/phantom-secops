@@ -1,11 +1,23 @@
 # phantom-secops
 
-> **Multi-agent security operations platform powered by [phantom-mesh](https://github.com/markl-a/phantom-mesh).**
-> Cooperating agents handle both defensive ops (alert triage, log anomaly, threat correlation) and red-team simulation (recon, vuln scan, POC suggestion) in an isolated lab.
+> **Lab-only, mock-first SecOps proof module for the [phantom-mesh](https://github.com/markl-a/phantom-mesh) ecosystem.**
+> Cooperating agents demonstrate both defensive ops (alert triage, log anomaly, threat correlation) and red-team simulation (recon, vuln scan, POC suggestion) in an isolated lab.
+> The reliable public demo today uses canned data; live Docker/tool execution remains a hardening path.
 
 [![Powered by phantom-mesh](https://img.shields.io/badge/powered%20by-phantom--mesh-purple)](https://github.com/markl-a/phantom-mesh)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![Lab](https://img.shields.io/badge/targets-OWASP%20Juice%20Shop%20%7C%20DVWA-orange)](docker-compose.yml)
+
+---
+
+## Current Verification
+
+Latest local verification:
+
+- `python scenarios/run_kill_chain.py --target juice-shop --mock`: passed
+- `python -m pytest tests -q`: 28 passed
+
+The current claim is red/blue orchestration, report generation, and lab-only evidence. It does not claim production SOC automation, 0-day discovery, or third-party scanning.
 
 ---
 
@@ -94,6 +106,31 @@ targets are listed via `make help`.
 
 ---
 
+## phantom-mesh integration (live mode v2)
+
+As of 2026-05-04, phantom-secops ships three MCP server wrappers that let
+phantom-mesh agents drive the kill-chain pipeline directly:
+
+- `secops_recon`       — wraps `tools/nmap_runner.py`
+- `secops_log`         — wraps `tools/log_anomaly.py`
+- `secops_self_audit`  — scans phantom's own `agents.toml`
+
+To enable on a phantom-mesh-equipped host:
+
+```bash
+export PHANTOM_SECOPS_ROOT=$(pwd)
+make mesh-mcp-config       # prints [[mcp_servers]] entries
+make mesh-sync             # prints [agent.X] rendered fragments
+
+# Append both outputs to ~/.phantom-mesh/agents.toml on the phantom-mesh
+# coordinator host, then restart phantom serve.
+```
+
+Design: see `docs/specs/2026-05-04-phantom-mesh-integration.md`.
+Plan:   see `docs/superpowers/plans/2026-05-04-phantom-mesh-integration.md`.
+
+---
+
 ## Repo layout
 
 ```
@@ -140,7 +177,7 @@ phantom-secops/
 | Blue team log-anomaly (URL-decoded pattern matchers) | ✅ working, 7 unit tests pass |
 | Blue team triage + correlation (group by actor + ATT&CK phase) | ✅ working |
 | Side-by-side red/blue report (pentest + incident markdown) | ✅ working |
-| Tests (`make test`) | ✅ 7 unit tests passing |
+| Tests (`python -m pytest tests -q`) | ✅ 28 tests passing in the latest local verification |
 | Live-mode kill-chain (against running docker lab) | ⚙️ partial — recon path works; nuclei path needs container with nuclei pre-installed |
 
 ---

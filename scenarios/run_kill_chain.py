@@ -65,43 +65,43 @@ def main() -> int:
     # ─── Red pipeline ─────────────────────────────────────────────────────
     event("red-recon  starts")
     recon = _run_recon(args.target, mock=args.mock)
-    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False))
+    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False), encoding="utf-8")
     event(f"red-recon  → {len(recon.get('open_ports', []))} open ports")
 
     event("red-vuln-scan  starts")
     vuln = _run_vuln_scan(args.target, recon, mock=args.mock)
-    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False))
+    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
     event(f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
 
     event("red-exploit-suggest  composing prose")
     suggestions = _run_exploit_suggest(vuln, mock=args.mock, use_llm=args.use_llm)
-    (out_dir / "exploit-suggestions.md").write_text(suggestions)
+    (out_dir / "exploit-suggestions.md").write_text(suggestions, encoding="utf-8")
     event("red-exploit-suggest  done")
 
     # ─── Blue pipeline (synthetic — would normally run continuously) ─────
     event("blue-log-anomaly  scanning canned attack log")
     alerts = _blue_log_anomaly(mock=args.mock)
-    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts))
+    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
     event(f"blue-log-anomaly  → {len(alerts)} raw alerts")
 
     event("blue-alert-triage  classify + dedupe")
     triaged = _blue_alert_triage(alerts)
-    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged))
+    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged), encoding="utf-8")
     event(f"blue-alert-triage  → {len(triaged)} triaged groups")
 
     event("blue-threat-correlate  reconstruct kill chain")
     correlation = _blue_threat_correlate(triaged)
-    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in correlation))
+    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in correlation), encoding="utf-8")
     event(f"blue-threat-correlate  → {len(correlation)} actor(s)")
 
     # ─── Reports ─────────────────────────────────────────────────────────
     event("red-pentest-report  composing markdown")
     pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline)
-    (out_dir / "pentest-report.md").write_text(pentest_md)
+    (out_dir / "pentest-report.md").write_text(pentest_md, encoding="utf-8")
 
     event("blue-incident-report  composing markdown")
     incident_md = _compose_incident_report(triaged, correlation, timeline)
-    (out_dir / "incident-report.md").write_text(incident_md)
+    (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
 
     event("done")
     print()
@@ -120,14 +120,14 @@ def main() -> int:
 
 def _run_recon(target: str, mock: bool) -> dict[str, Any]:
     if mock:
-        return json.loads((MOCKS_DIR / "recon-juice-shop.json").read_text())
+        return json.loads((MOCKS_DIR / "recon-juice-shop.json").read_text(encoding="utf-8"))
     return nmap_runner.run(target)
 
 
 def _run_vuln_scan(target: str, recon: dict[str, Any], mock: bool) -> dict[str, Any]:
     _ = recon  # vuln-scan reads recon ports in live mode (see tools/nuclei_runner.py)
     if mock:
-        return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text())
+        return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text(encoding="utf-8"))
     # Live mode would call nuclei_runner.run(...) for each open HTTP port from
     # the recon JSON. Skipped in this minimal demo path; see tools/nuclei_runner.py.
     return {"target": target, "findings": []}
@@ -172,41 +172,10 @@ def _exploit_prose(f: dict[str, Any]) -> str:
 # ─── Blue pipeline implementations ────────────────────────────────────────
 
 def _blue_log_anomaly(mock: bool) -> list[dict[str, Any]]:
-    """Pattern-match the canned attack log to produce alerts.
-
-    URL-decodes each line before pattern matching so injection payloads
-    survive the encoding scanners use to slip past naive WAFs.
-    """
+    """Backward-compatible shim around tools.log_anomaly.scan_log_lines."""
+    from tools.log_anomaly import scan_log_lines  # imported lazily to keep test isolation
     log_path = MOCKS_DIR / "attack-log.txt" if mock else REPO_ROOT / "reports/lab-logs/juice-shop.log"
-    if not log_path.exists():
-        return []
-
-    import re
-    from urllib.parse import unquote
-
-    patterns: list[tuple[str, str, str]] = [
-        ("traversal",  r"(\.\./|\.\.\\|/etc/passwd)",                              "high"),
-        ("sqli",       r"(\bunion\b.*\bselect\b|\bor\s+1\s*=\s*1\b|\bsleep\s*\(\d)", "high"),
-        ("xss",        r"(<script|onerror\s*=|javascript:)",                      "medium"),
-        ("admin_path", r"/(administration|admin|wp-admin|\.git/|\.env|server-status)", "medium"),
-        ("scanner",    r"(nikto|nmap|sqlmap|nuclei|burpsuite|wpscan)",            "low"),
-    ]
-    alerts: list[dict[str, Any]] = []
-    for line in log_path.read_text().splitlines():
-        decoded = unquote(line)
-        for category, pat, sev in patterns:
-            if re.search(pat, decoded, re.I):
-                ip_m = re.match(r"^(\d{1,3}(?:\.\d{1,3}){3})", line)
-                alerts.append({
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                    "source_ip": ip_m.group(1) if ip_m else "unknown",
-                    "asset": "juice-shop",
-                    "category": category,
-                    "evidence": line[:200],
-                    "severity_hint": sev,
-                })
-                break  # one alert per line is enough
-    return alerts
+    return scan_log_lines(log_path, asset="juice-shop")
 
 
 def _blue_alert_triage(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:

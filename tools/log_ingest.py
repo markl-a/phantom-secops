@@ -35,7 +35,7 @@ def scan_window(window_seconds: int = 30) -> dict[str, Any]:  # noqa: ARG001  (k
             continue
         # Quick last-N-lines read; for production use rotating tail offsets.
         try:
-            recent_lines = log_file.read_text(errors="replace").splitlines()[-500:]
+            recent_lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()[-500:]
         except OSError:
             continue
 
