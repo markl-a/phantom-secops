@@ -1,0 +1,27 @@
+# Don't ship the working tree into the build context — only the Dockerfile
+# itself reads from this directory. Keeping the build context small means
+# faster `docker build` invocations and smaller layers.
+
+.git/
+.github/
+.claude/
+.mcp.json
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Per-run artifacts and logs.
+reports/runs/
+reports/lab-logs/
+
+# Docs aren't needed inside the image.
+docs/
+README.md
+*.md
+
+# IDE / OS cruft.
+.vscode/
+.idea/
+.DS_Store
