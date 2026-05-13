@@ -2,13 +2,13 @@
 
 **Phase: 🟡 Public Alpha — opened 2026-05-10**
 
-This repo went public alpha as part of the [phantom-mesh ecosystem](https://github.com/markl-a/phantom-mesh) launch on 2026-05-20. It is *not* yet a polished product — but it is **demonstrably runnable end-to-end** in mock mode (`make demo-mock`, ≈ 90 seconds, zero external deps).
+This repo went public alpha as part of the [phantom-mesh ecosystem](https://github.com/markl-a/phantom-mesh) launch on 2026-05-20. It is *not* yet a polished product — but it is **demonstrably runnable end-to-end** in mock mode (`make demo-mock`, <1s, zero external deps).
 
 ## What works today (2026-05-10)
 
 | Component | State |
 |---|---|
-| `make demo-mock` (deterministic kill-chain run) | ✅ runs in 90 s, no Docker, no API keys |
+| `make demo-mock` (deterministic kill-chain run) | ✅ runs in <1s, no Docker, no API keys |
 | `make demo` (live OWASP Juice Shop + DVWA via Docker) | ✅ tested locally; Docker required |
 | MCP server (`phantom_secops/mcp/server.py`, 10 tools) | ✅ accepts `phantom mcp add` / Claude Code |
 | Red-team agents (recon → vuln-scan → exploit-prose → pentest report) | ✅ canned mock fixtures + opt-in real LLM |

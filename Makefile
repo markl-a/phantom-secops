@@ -7,7 +7,31 @@
 # `make test`        — run pytest against tool wrappers.
 # `make lint`        — basic checks (toml validation, python syntax).
 
-.PHONY: help demo demo-mock lab-up lab-down lab-status test lint mesh-sync mesh-mcp-config clean
+.PHONY: help demo demo-mock lab-up lab-down lab-status test lint lint-mesh-config mesh-sync mesh-mcp-config clean
+
+define MESH_MCP_CONFIG_BODY
+[[mcp_servers]]
+name    = "secops_recon"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+
+[[mcp_servers]]
+name    = "secops_log"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_log_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+
+[[mcp_servers]]
+name    = "secops_self_audit"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+endef
+export MESH_MCP_CONFIG_BODY
 
 help:
 	@awk 'BEGIN{FS=":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -54,28 +78,13 @@ mesh-sync:  ## Render agents/*.toml to phantom-mesh format and print to stdout (
 	done
 
 mesh-mcp-config:  ## Print [[mcp_servers]] entries to paste into phantom-mesh agents.toml
-	@cat <<'EOF'
-[[mcp_servers]]
-name    = "secops_recon"
-command = "python3"
-args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
-cwd     = "$${PHANTOM_SECOPS_ROOT}"
-env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+	@printf '%s\n' "$$MESH_MCP_CONFIG_BODY"
 
-[[mcp_servers]]
-name    = "secops_log"
-command = "python3"
-args    = ["-m", "phantom_secops.mcp.secops_log_server"]
-cwd     = "$${PHANTOM_SECOPS_ROOT}"
-env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
-
-[[mcp_servers]]
-name    = "secops_self_audit"
-command = "python3"
-args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
-cwd     = "$${PHANTOM_SECOPS_ROOT}"
-env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
-EOF
+lint-mesh-config:  ## Sanity check: rendered mesh-mcp-config keeps literal $${PHANTOM_SECOPS_ROOT}
+	@out=$$($(MAKE) -s mesh-mcp-config); \
+	echo "$$out" | grep -q '$${PHANTOM_SECOPS_ROOT}' \
+	  || { echo "✗ mesh-mcp-config output is missing literal \$${PHANTOM_SECOPS_ROOT}"; echo "$$out"; exit 1; }; \
+	echo "  ✓ mesh-mcp-config preserves literal \$${PHANTOM_SECOPS_ROOT}"
 
 clean:  ## Remove generated reports + python cache
 	rm -rf reports/runs/* reports/lab-logs/* __pycache__ .pytest_cache
