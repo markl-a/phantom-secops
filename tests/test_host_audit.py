@@ -14,9 +14,13 @@ from tools.host_audit import (
     check_mac_filevault,
     check_mac_firewall,
     check_mac_sip,
+    check_win_av_products,
+    check_win_bitlocker,
     check_win_defender,
     check_win_firewall,
+    check_win_guest_account,
     check_win_listening_ports,
+    check_win_rdp,
     check_win_uac,
 )
 
@@ -90,6 +94,65 @@ def test_check_degrades_to_unknown_on_command_error():
     # Non-zero exit (e.g. needs admin) → unknown, never a crash or false pass.
     f = check_win_defender(fixed_run(out="", code=1, err="Access is denied"))
     assert f["status"] == "unknown"
+
+
+def test_win_bitlocker_on_passes():
+    f = check_win_bitlocker(fixed_run("ProtectionStatus=On\n"))
+    assert f["status"] == "pass"
+
+
+def test_win_bitlocker_off_fails():
+    f = check_win_bitlocker(fixed_run("ProtectionStatus=Off\n"))
+    assert f["status"] == "fail"
+    assert f["severity"] == "high"
+
+
+def test_win_bitlocker_no_admin_unknown():
+    # Get-BitLockerVolume requires elevation; a non-zero exit must degrade.
+    f = check_win_bitlocker(fixed_run(out="", code=1, err="requires elevation"))
+    assert f["status"] == "unknown"
+
+
+def test_win_bitlocker_empty_status_is_unknown_not_fail():
+    # Exit 0 but no ProtectionStatus value (e.g. ran unelevated) must NOT be
+    # reported as "not encrypted" — that would be a misleading false alarm.
+    f = check_win_bitlocker(fixed_run("ProtectionStatus=\n"))
+    assert f["status"] == "unknown"
+
+
+def test_win_rdp_disabled_passes():
+    f = check_win_rdp(fixed_run("fDenyTSConnections=1\n"))
+    assert f["status"] == "pass"
+
+
+def test_win_rdp_enabled_warns():
+    f = check_win_rdp(fixed_run("fDenyTSConnections=0\n"))
+    assert f["status"] == "warn"
+    assert f["severity"] == "medium"
+
+
+def test_win_guest_disabled_passes():
+    f = check_win_guest_account(fixed_run("GuestEnabled=False\n"))
+    assert f["status"] == "pass"
+
+
+def test_win_guest_enabled_fails():
+    f = check_win_guest_account(fixed_run("GuestEnabled=True\n"))
+    assert f["status"] == "fail"
+    assert f["severity"] == "high"
+
+
+def test_win_av_products_present_passes():
+    out = "Product=Windows Defender\nProduct=Norton Security\n"
+    f = check_win_av_products(fixed_run(out))
+    assert f["status"] == "pass"
+    assert "Norton Security" in f["detail"]
+
+
+def test_win_av_products_none_fails():
+    f = check_win_av_products(fixed_run(""))
+    assert f["status"] == "fail"
+    assert f["severity"] == "high"
 
 
 # ── macOS checks ──────────────────────────────────────────────────────────────

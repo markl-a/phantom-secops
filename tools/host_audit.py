@@ -141,6 +141,66 @@ def check_win_listening_ports(run: Run) -> dict:
                     f"{total} listening port(s), none bound to all interfaces")
 
 
+def check_win_bitlocker(run: Run) -> dict:
+    r = run(_ps(
+        "\"ProtectionStatus=$((Get-BitLockerVolume -MountPoint $env:SystemDrive)"
+        ".ProtectionStatus)\""
+    ))
+    if r.code != 0:
+        return _unknown("bitlocker", r)
+    val = _parse_kv(r.out).get("ProtectionStatus", "").lower()
+    if val == "on":
+        return _finding("bitlocker", "pass", "info", "system drive is BitLocker-encrypted")
+    if val == "off":
+        return _finding("bitlocker", "fail", "high", "system drive is not BitLocker-encrypted")
+    # Empty/unexpected value usually means the query ran without elevation.
+    return _unknown("bitlocker", r)
+
+
+def check_win_rdp(run: Run) -> dict:
+    r = run(_ps(
+        "\"fDenyTSConnections=$((Get-ItemProperty "
+        "'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server')"
+        ".fDenyTSConnections)\""
+    ))
+    if r.code != 0:
+        return _unknown("rdp_enabled", r)
+    val = _parse_kv(r.out).get("fDenyTSConnections", "")
+    if val == "1":
+        return _finding("rdp_enabled", "pass", "info", "Remote Desktop is disabled")
+    return _finding("rdp_enabled", "warn", "medium",
+                    "Remote Desktop is enabled; ensure it is restricted and patched")
+
+
+def check_win_guest_account(run: Run) -> dict:
+    r = run(_ps("\"GuestEnabled=$((Get-LocalUser -Name 'Guest').Enabled)\""))
+    if r.code != 0:
+        return _unknown("guest_account", r)
+    val = _parse_kv(r.out).get("GuestEnabled", "").lower()
+    if val == "false":
+        return _finding("guest_account", "pass", "info", "Guest account is disabled")
+    return _finding("guest_account", "fail", "high", "Guest account is enabled")
+
+
+def check_win_av_products(run: Run) -> dict:
+    # SecurityCenter2 lists every registered AV — this disambiguates a Defender
+    # "off" reading caused by a third-party AV stepping in. Workstation SKUs only.
+    r = run(_ps(
+        "Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct "
+        "| ForEach-Object { \"Product=$($_.displayName)\" }"
+    ))
+    if r.code != 0:
+        return _unknown("antivirus_registered", r)
+    names = [v for k, v in (
+        line.rsplit("=", 1) for line in r.out.splitlines() if "=" in line
+    ) if k.strip() == "Product" and v.strip()]
+    if names:
+        return _finding("antivirus_registered", "pass", "info",
+                        f"registered AV product(s): {', '.join(n.strip() for n in names)}")
+    return _finding("antivirus_registered", "fail", "high",
+                    "no antivirus product registered with Windows Security Center")
+
+
 # ── macOS checks ──────────────────────────────────────────────────────────────
 
 def check_mac_filevault(run: Run) -> dict:
@@ -176,7 +236,11 @@ def check_mac_sip(run: Run) -> dict:
 WINDOWS_CHECKS = [
     check_win_firewall,
     check_win_defender,
+    check_win_av_products,
+    check_win_bitlocker,
     check_win_uac,
+    check_win_rdp,
+    check_win_guest_account,
     check_win_listening_ports,
 ]
 
