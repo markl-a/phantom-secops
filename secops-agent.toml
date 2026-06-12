@@ -1,0 +1,87 @@
+# ── phantom-mesh config: security-specialised agent ───────────────────────────
+# Self-contained config that turns phantom-mesh into a sec-ops agent backed by
+# this repo's three MCP plugins. Decoupled from the main phantom-mesh project —
+# run it with:
+#
+#   phantom exec --config secops-agent.toml --agent secops "audit my own config"
+#   phantom repl --config secops-agent.toml --agent secops
+#
+# Prereq: GROQ_API_KEY exported (already set in this environment).
+
+[core]
+host = "127.0.0.1"   # local-only; no cluster / external exposure
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+# Primary: Gemini (generous free-tier limits; handles tool calls well). The
+# secops system prompt + 3 MCP tool schemas push each request to ~9.5k tokens,
+# which exceeds Groq's free-tier 8000 TPM limit — so Gemini leads, Groq is
+# fallback only.
+[providers.gemini]
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"
+default_model = "gemini-2.5-flash"
+
+# llama-3.3-70b has a 12000 TPM free-tier limit (vs gpt-oss-20b's 8000), so the
+# ~8.9k-token tool-augmented request fits. gpt-oss-20b kept rejecting with 413.
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+# ── External MCP servers: this repo's three sec-ops plugins ────────────────────
+# Tools are auto-appended to every agent as `<name>_<tool>`, e.g.
+# secops_recon_scan_target, secops_log_scan_log, secops_self_audit_audit_local_config.
+# cwd is ignored by phantom today, so PYTHONPATH is set explicitly.
+
+[[mcp_servers]]
+name    = "secops_recon"
+command = "python"
+args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
+env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+
+[[mcp_servers]]
+name    = "secops_log"
+command = "python"
+args    = ["-m", "phantom_secops.mcp.secops_log_server"]
+env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+
+[[mcp_servers]]
+name    = "secops_self_audit"
+command = "python"
+args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
+env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+
+[[mcp_servers]]
+name    = "secops_host_audit"
+command = "python"
+args    = ["-m", "phantom_secops.mcp.secops_host_audit_server"]
+env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+
+# ── The security-specialised agent ────────────────────────────────────────────
+[agent.secops]
+# No agent-level `model`: each provider uses its own default_model, so the
+# groq fallback doesn't inherit gemini's model name (which caused a 404).
+provider  = "groq"
+providers = ["groq", "gemini"]   # groq primary (gemini key is quota-limited today)
+tools     = []                    # MCP tools auto-append; keep request small for groq's 8000 TPM
+instructions = """
+You are a defensive sec-ops agent in an isolated research lab. Three tools:
+- secops_recon_scan_target: nmap a host inside the secops-lab docker network
+  (lab-only, self-gated). Recon only, never exploit, never scan public hosts.
+- secops_log_scan_log: scan a log file for attack patterns (sqli/traversal/
+  xss/admin/scanner) and summarise alerts.
+- secops_self_audit_audit_local_config: audit local phantom-mesh config for
+  security smells (plaintext keys, weak secrets, 0.0.0.0 binds).
+- secops_host_audit_audit_host: check THIS computer's security posture
+  (firewall, disk encryption, antivirus, UAC, listening ports, SIP). Use this
+  when the user asks to check their machine. Read-only; lead with fail/warn
+  findings and explain each plainly.
+
+Rules: never claim a scan/audit without calling the tool and seeing real
+output; report tool errors verbatim; stay defensive and in-scope; be concise.
+"""
+
+[agent.secops.limits]
+max_tool_calls = 3     # tight: llama-3.3 tends to re-call; cap forces final synthesis
+max_runtime_s  = 120
