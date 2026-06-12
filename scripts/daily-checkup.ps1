@@ -20,9 +20,10 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $log   = Join-Path $logDir "checkup_$stamp.log"
 
-# Run the full check-up (skip unit tests — those are for development), capturing
-# every stream into the dated log.
-& (Join-Path $repo "checkup.ps1") -SkipTests -Path $ScanPath *>> $log
+# Run the full check-up (skip unit tests — those are for development), merging
+# every stream and writing UTF-8 (Windows PowerShell's *>> defaults to UTF-16).
+& (Join-Path $repo "checkup.ps1") -SkipTests -Path $ScanPath *>&1 |
+    Out-File -FilePath $log -Encoding utf8
 
 # Keep 30 days of logs.
 Get-ChildItem $logDir -Filter "checkup_*.log" -ErrorAction SilentlyContinue |

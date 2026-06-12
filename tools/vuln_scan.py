@@ -66,7 +66,9 @@ def _summary(findings: list[dict]) -> dict:
 
 def scan_vulns(path: str = ".", run: Run | None = None) -> dict:
     """Run Trivy over `path` and return prioritised, summarised findings."""
-    run = run or _default_run
+    # Trivy on a real codebase can take minutes — allow far more than the
+    # default 30s used for quick host-posture commands.
+    run = run or (lambda args: _default_run(args, timeout=600))
     r = run(["trivy", "fs", "--quiet", "--scanners", "vuln", "--format", "json", path])
     if r.code != 0:
         return {
