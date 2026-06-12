@@ -126,6 +126,8 @@ key engineering decisions: [docs/DECISIONS.md](docs/DECISIONS.md).
 - `make demo-mock` → red/blue pipeline on canned data.
 - `.\checkup.ps1` → live endpoint check + AI report on Windows.
 
+Step-by-step walkthrough for both demos: [docs/DEMO.md](docs/DEMO.md).
+
 ---
 
 ## Engineering decisions worth a look
