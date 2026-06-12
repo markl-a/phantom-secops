@@ -7,7 +7,7 @@ reports/*
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
+.venv*/
 .mypy_cache/
 .pytest_cache/
 
