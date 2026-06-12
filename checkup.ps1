@@ -56,16 +56,21 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) { Write-Host "  tests FAILED — aborting" -ForegroundColor Red; exit 1 }
 }
 
-# ── 3. Each tool, raw ─────────────────────────────────────────────────────────
+# ── 3. Each tool, raw (captured once, reused by the agent) ─────────────────────
 Section "Tool output (host posture + vulnerabilities)"
-python "$repo\lab\_checkup.py" $Path
+$toolOut = python "$repo\lab\_checkup.py" $Path 2>&1 | Out-String
+Write-Host $toolOut
 
-# ── 4. Agent — AI-synthesised report ──────────────────────────────────────────
+# ── 4. Agent — synthesise from the captured data (no slow MCP re-scan) ─────────
+# Feeding the already-collected findings avoids the agent re-running Trivy over a
+# large repo, which would time out at phantom's MCP layer and wrongly report
+# "scan unavailable".
 if (-not $SkipAgent) {
     Section "Agent report (AI-prioritised)"
-    $prompt = "Check this computer's security posture and scan $Path for " +
-              "vulnerabilities. Give me ONE prioritised action list, most urgent " +
-              "first, combining both — include exact fix versions for any CVEs."
+    $prompt = "Below is a completed read-only security check-up of this machine. " +
+              "Do NOT run any tools or re-scan. From THIS DATA ONLY, give one " +
+              "prioritised action list, most urgent first, with exact fix versions " +
+              "for any CVEs.`n`n" + $toolOut
     $prompt | phantom exec --config "$repo\secops-agent.toml" --agent secops --quiet
 }
 
