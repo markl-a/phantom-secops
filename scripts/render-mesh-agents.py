@@ -45,7 +45,15 @@ TOOL_MAP: dict[str, tuple[str, list[str], str]] = {
     "file_write":    ("file_write", [], "internal"),
     "http_probe":    ("web_fetch",  [], "internal"),
     "dns_enum":      ("web_fetch",  [], "internal"),
+    "cve_lookup":    ("web_fetch",  [], "internal"),  # online CVE lookup
+    "stats":         ("file_read",  [], "internal"),  # reads run artifacts to compute stats
 }
+
+# Recognized red-team scanners that don't have an MCP plugin wrapper yet (only
+# nmap is wrapped, via secops_recon). Rendered with a marker instead of the
+# exit-2 "unknown tool" path, so the agent still renders; wrapping them as MCP
+# servers (like secops_recon) is the follow-up.
+PENDING_MCP = {"nuclei_runner", "nikto_runner"}
 
 DEFAULT_PROVIDER = "groq"
 DEFAULT_MODEL = "openai/gpt-oss-20b"
@@ -69,6 +77,7 @@ def main() -> int:
 
     mesh_tool_names: list[str] = []
     capability_hints: list[str] = []
+    notes: list[str] = []          # comment lines (kept OUT of the tools array)
     max_classification = "internal"
     saw_unmapped = False
 
@@ -80,16 +89,19 @@ def main() -> int:
             capability_hints.extend(caps)
             if CLASS_RANK[cls] > CLASS_RANK[max_classification]:
                 max_classification = cls
+        elif tname in PENDING_MCP:
+            notes.append(f"# pending MCP wrapper: {tname}")
         else:
-            mesh_tool_names.append(f"# TODO: map {tname}")
+            notes.append(f"# TODO: map {tname}")
             saw_unmapped = True
 
     # Render
     out: list[str] = [f"[agent.{name}]"]
     out.append(f'provider = "{args.provider}"')
     out.append(f'model    = "{args.model}"')
-    tools_repr = ", ".join(f'"{t}"' if not t.startswith("#") else t for t in mesh_tool_names)
+    tools_repr = ", ".join(f'"{t}"' for t in mesh_tool_names)
     out.append(f"tools    = [{tools_repr}]")
+    out.extend(notes)  # pending/TODO markers as comment lines (valid TOML)
     out.append('instructions = """')
     out.append(instructions)
     out.append('"""')

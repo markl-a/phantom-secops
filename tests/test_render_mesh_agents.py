@@ -54,6 +54,48 @@ def test_unknown_tool_emits_todo_and_exit_2(tmp_path: Path):
     assert "TODO: map unmapped_tool" in out
 
 
+def test_all_real_agents_render_cleanly():
+    # G5: every shipped agent must render to mesh format without an "unknown tool"
+    # error (pending-MCP tools are allowed and clearly marked).
+    agents = sorted((Path(__file__).resolve().parent.parent / "agents").glob("*/*.toml"))
+    assert len(agents) == 8
+    for toml in agents:
+        rc, out = run([str(toml)])
+        assert rc == 0, f"{toml.name} did not render cleanly:\n{out}"
+        assert "[agent." in out
+
+
+def test_rendered_output_is_valid_toml():
+    # The real contract: every agent must render to PARSEABLE mesh TOML — pending/
+    # TODO markers must be comment lines, never inline inside the tools array.
+    try:
+        import tomllib
+    except ImportError:  # pragma: no cover
+        import tomli as tomllib  # type: ignore
+    agents = sorted((Path(__file__).resolve().parent.parent / "agents").glob("*/*.toml"))
+    for toml in agents:
+        rc, out = run([str(toml)])
+        assert rc == 0, out
+        tomllib.loads(out)  # must not raise
+
+
+def test_pending_mcp_tool_renders_without_error(tmp_path: Path):
+    # nuclei/nikto are recognized red-team scanners that have no MCP plugin yet:
+    # render with a clear marker, exit 0 (NOT the exit-2 "unknown tool" path).
+    src = tmp_path / "v.toml"
+    src.write_text(
+        '[agent]\n'
+        'name = "v"\n'
+        '[[agent.tools]]\n'
+        'name = "nuclei_runner"\n'
+        '[agent.prompt]\n'
+        'system = "x"\n'
+    )
+    rc, out = run([str(src)])
+    assert rc == 0, out
+    assert "pending MCP wrapper: nuclei_runner" in out
+
+
 def test_blue_alert_triage_renders_blue_classification(tmp_path: Path):
     src = tmp_path / "triage.toml"
     src.write_text(
