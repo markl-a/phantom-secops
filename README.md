@@ -11,7 +11,7 @@
 
 [![Powered by phantom-mesh](https://img.shields.io/badge/powered%20by-phantom--mesh-purple)](https://github.com/markl-a/phantom-mesh)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-96%20passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
 ---
 
@@ -118,9 +118,9 @@ key engineering decisions: [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## Verification
 
-- `python -m pytest -q` → **96 passing** (matchers, parsers, prioritisation, the Sigma
-  engine, elevation/encoding edge cases — all via injected runners, no real scanning in
-  tests).
+- `python -m pytest -q` → all green (run it; the suite grows as features land). Covers
+  matchers, parsers, prioritisation, the Sigma engine, and elevation/encoding edge cases
+  — all via injected runners, no real scanning in tests.
 - `make demo-mock` → red/blue pipeline on canned data.
 - `.\checkup.ps1` → live endpoint check + AI report on Windows.
 
