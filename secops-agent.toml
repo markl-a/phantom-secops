@@ -58,6 +58,12 @@ command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_host_audit_server"]
 env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
 
+[[mcp_servers]]
+name    = "secops_vuln"
+command = "python"
+args    = ["-m", "phantom_secops.mcp.secops_vuln_server"]
+env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+
 # ── The security-specialised agent ────────────────────────────────────────────
 [agent.secops]
 # No agent-level `model`: each provider uses its own default_model, so the
