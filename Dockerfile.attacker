@@ -1,0 +1,57 @@
+# Attacker container for the phantom-secops lab.
+#
+# Pre-installs nmap, nuclei, nikto, and DNS/HTTP utilities so the red-team
+# tool wrappers (tools/{nmap,nuclei}_runner.py) don't have to install at
+# runtime. Nuclei templates are baked into the image so the first scan
+# inside a fresh lab doesn't pay a ~50 MB download.
+#
+# Build:   docker build -f Dockerfile.attacker -t phantom-secops/attacker:latest .
+# Used by: docker-compose.yml `attacker` service.
+
+FROM kalilinux/kali-rolling:latest
+
+# Pin nuclei. Bump deliberately, not opportunistically — template
+# compatibility can break across major versions.
+ARG NUCLEI_VERSION=3.3.5
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 1. Install scanners + utilities from apt.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      nmap \
+      nikto \
+      dnsutils \
+      curl \
+      wget \
+      ca-certificates \
+      unzip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. Install nuclei from the official GitHub release. ProjectDiscovery ships
+#    glibc Linux binaries, which is why we stay on Kali (Debian) rather than
+#    Alpine — musl would force us to build from source.
+RUN set -eux; \
+    arch="${TARGETARCH:-amd64}"; \
+    url="https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${arch}.zip"; \
+    cd /tmp && \
+    wget -q "$url" -O nuclei.zip && \
+    unzip -q nuclei.zip && \
+    install -m 0755 nuclei /usr/local/bin/nuclei && \
+    rm -f nuclei.zip nuclei README.md LICENSE.md && \
+    nuclei -version
+
+# 3. Pre-fetch nuclei templates so the first scan inside a fresh container
+#    doesn't trigger a download. `|| true` keeps the build going if GitHub
+#    rate-limits during a CI run; the runtime fetch will retry.
+RUN nuclei -update-templates -silent || true
+
+# 4. Sanity check — versions go into build output for debugging.
+RUN nmap --version | head -1 && \
+    nikto -Version | head -1 && \
+    nuclei -version
+
+# Keep the container alive so `docker exec` works for tool wrappers.
+CMD ["sleep", "infinity"]
