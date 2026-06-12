@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import pytest
 
+import sys
+
 from tools.host_audit import (
     CmdResult,
     audit_host,
+    detect_elevation,
+    _default_run,
     check_mac_filevault,
     check_mac_firewall,
     check_mac_sip,
@@ -215,6 +219,62 @@ def test_audit_host_unsupported_platform_is_graceful():
     assert result["platform"] == "plan9"
     assert result["checks"] == []
     assert "unsupported" in result["note"].lower()
+
+
+# ── Elevation detection ───────────────────────────────────────────────────────
+
+def test_detect_elevation_windows_admin():
+    assert detect_elevation("windows", fixed_run("Elevated=True\n")) is True
+
+
+def test_detect_elevation_windows_nonadmin():
+    assert detect_elevation("windows", fixed_run("Elevated=False\n")) is False
+
+
+def test_detect_elevation_mac_root():
+    assert detect_elevation("darwin", fixed_run("0\n")) is True
+
+
+def test_detect_elevation_mac_nonroot():
+    assert detect_elevation("darwin", fixed_run("501\n")) is False
+
+
+def test_detect_elevation_unsupported_is_none():
+    assert detect_elevation("plan9", fixed_run("whatever\n")) is None
+
+
+def test_detect_elevation_query_error_is_none():
+    assert detect_elevation("windows", fixed_run(out="", code=1)) is None
+
+
+def test_audit_host_reports_elevation():
+    r = audit_host("windows", run=fixed_run("Elevated=False\n"),
+                   checks=[_stub_check("a", "pass")])
+    assert r["elevation"]["elevated"] is False
+
+
+def test_audit_host_unelevated_hints_admin_when_unknown_present():
+    r = audit_host("windows", run=fixed_run("Elevated=False\n"),
+                   checks=[_stub_check("bitlocker", "unknown")])
+    assert "hint" in r
+    assert "administrator" in r["hint"].lower()
+
+
+def test_audit_host_no_hint_when_all_known():
+    r = audit_host("windows", run=fixed_run("Elevated=False\n"),
+                   checks=[_stub_check("a", "pass"), _stub_check("b", "fail")])
+    assert "hint" not in r
+
+
+# ── Runner encoding robustness ────────────────────────────────────────────────
+
+def test_default_run_decodes_bad_bytes_without_crashing():
+    # zh-TW Windows emits cp950 error text; the runner must not raise on bytes
+    # that are invalid under the assumed encoding. Bad bytes degrade, ASCII survives.
+    r = _default_run([sys.executable, "-c",
+                      "import sys; sys.stdout.buffer.write(b'\\xff\\xfeOK')"])
+    assert r.code == 0
+    assert "OK" in r.out
 
 
 def test_audit_host_dispatches_by_platform():

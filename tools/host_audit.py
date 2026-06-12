@@ -31,9 +31,17 @@ Run = Callable[[list], CmdResult]
 
 
 def _default_run(args: list) -> CmdResult:
+    # Capture bytes and decode as UTF-8 with replacement: the locale codec
+    # (e.g. cp950 on zh-TW Windows) raises on bytes outside its range, which
+    # would otherwise turn a normal command into a spurious failure. PowerShell
+    # is asked to emit UTF-8 (see _ps), so this also keeps non-ASCII readable.
     try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=30)
-        return CmdResult(code=p.returncode, out=p.stdout, err=p.stderr)
+        p = subprocess.run(args, capture_output=True, timeout=30)
+        return CmdResult(
+            code=p.returncode,
+            out=p.stdout.decode("utf-8", errors="replace"),
+            err=p.stderr.decode("utf-8", errors="replace"),
+        )
     except Exception as e:  # noqa: BLE001 — surface any spawn failure as a result
         return CmdResult(code=127, out="", err=str(e))
 
@@ -48,7 +56,10 @@ def _unknown(check: str, r: CmdResult) -> dict:
 
 
 def _ps(command: str) -> list:
-    return ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+    # Force UTF-8 output so error/text with non-ASCII (localized Windows
+    # messages) round-trips cleanly through _default_run's UTF-8 decode.
+    prefix = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+    return ["powershell", "-NoProfile", "-NonInteractive", "-Command", prefix + command]
 
 
 def _parse_kv(text: str) -> dict:
@@ -255,6 +266,34 @@ _REGISTRY = {"windows": WINDOWS_CHECKS, "darwin": MACOS_CHECKS}
 _STATUSES = ("pass", "warn", "fail", "unknown", "skipped")
 
 
+def detect_elevation(platform_name: str, run: Run) -> bool | None:
+    """Return whether the audit is running with admin/root rights.
+
+    True / False when determinable, None when the platform is unsupported or
+    the probe itself fails. Lets the caller distinguish "needs elevation" from
+    "genuinely insecure" when a check degrades to unknown.
+    """
+    name = platform_name.lower()
+    if name == "windows":
+        r = run(_ps(
+            "\"Elevated=$(([Security.Principal.WindowsPrincipal]"
+            "[Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole("
+            "[Security.Principal.WindowsBuiltinRole]::Administrator))\""
+        ))
+        if r.code != 0:
+            return None
+        val = _parse_kv(r.out).get("Elevated")
+        if val is None:
+            return None
+        return val.lower() == "true"
+    if name == "darwin":
+        r = run(["id", "-u"])
+        if r.code != 0:
+            return None
+        return r.out.strip() == "0"
+    return None
+
+
 def _summary(findings: list) -> dict:
     counts = {s: 0 for s in _STATUSES}
     for f in findings:
@@ -272,7 +311,19 @@ def audit_host(platform_name: str | None = None,
     if checks is None:
         checks = _REGISTRY.get(name)
     if checks is None:
-        return {"platform": name, "checks": [], "summary": _summary([]),
-                "note": f"unsupported platform: {name}"}
+        return {"platform": name, "elevation": {"elevated": None}, "checks": [],
+                "summary": _summary([]), "note": f"unsupported platform: {name}"}
     findings = [c(run) for c in checks]
-    return {"platform": name, "checks": findings, "summary": _summary(findings)}
+    elevated = detect_elevation(name, run)
+    result = {
+        "platform": name,
+        "elevation": {"elevated": elevated},
+        "checks": findings,
+        "summary": _summary(findings),
+    }
+    if elevated is False and any(f["status"] == "unknown" for f in findings):
+        result["hint"] = (
+            "Some checks could not be determined; re-run as Administrator "
+            "for a complete result."
+        )
+    return result
