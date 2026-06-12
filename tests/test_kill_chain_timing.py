@@ -60,3 +60,35 @@ def test_metrics_empty_timeline_is_safe():
     m = _metrics([])
     assert m["mttd"] == 0.0
     assert m["time_to_impact"] == 0.0
+
+
+def test_metrics_reports_defender_win_on_mock_timeline():
+    m = _metrics(SYN_TL)
+    assert m["outcome"] == "defender"
+    assert m["detect_margin"] == 35.0
+
+
+def test_metrics_reports_attacker_win_when_detect_after_impact():
+    # Detection lands AFTER impact — the honest negative margin must NOT be clamped.
+    tl = [
+        (0.0, "red", "red-recon  starts"),
+        (50.0, "red", "red-exploit-suggest  done"),
+        (60.0, "blue", "blue-alert-triage  → 5 triaged groups"),
+    ]
+    m = _metrics(tl)
+    assert m["detect_margin"] == -10.0
+    assert m["outcome"] == "attacker"
+
+
+def test_detection_issued_before_impact_in_pipeline_order(tmp_path):
+    # G1: the defender's triage must be issued before the attacker's impact in the
+    # orchestration order (so live wall-clock timing isn't a mock-only illusion).
+    import argparse
+    from scenarios.run_kill_chain import _run_pipeline
+
+    args = argparse.Namespace(target="juice-shop", mock=True, use_llm=False, out=None)
+    timeline, _pentest, _incident = _run_pipeline(args, tmp_path)
+    labels = [lbl for _, _, lbl in timeline]
+    detect_i = next(i for i, l in enumerate(labels) if "alert-triage" in l and "→" in l)
+    impact_i = next(i for i, l in enumerate(labels) if "exploit-suggest" in l and "done" in l)
+    assert detect_i < impact_i

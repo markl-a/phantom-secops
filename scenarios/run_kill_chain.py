@@ -34,8 +34,14 @@ MOCKS_DIR = REPO_ROOT / "lab" / "mocks"
 
 # Simulated per-step durations (seconds) used in --mock mode so the red and blue
 # timelines are meaningful instead of all-zero. Live mode ignores these and uses
-# real wall-clock. Chosen so the defender's first triaged alert lands well before
-# the attacker reaches impact — the whole point of the MTTD comparison.
+# real wall-clock.
+#
+# Provenance: these are ILLUSTRATIVE order-of-magnitude operator-time estimates
+# (e.g. recon ≈ an nmap -sV of one host; threat-correlate ≈ an analyst review
+# window), NOT measured benchmarks. They are scenario inputs that make the
+# simulated timeline plausible; the *mechanism* (concurrent clocks, milestone
+# extraction, the MTTD comparison) is what's real and tested — the numbers are
+# not a claim about real detection latency.
 RED_DURATIONS = {
     "recon": 12.0, "vuln-scan": 30.0, "exploit-suggest": 8.0, "pentest-report": 5.0,
 }
@@ -86,59 +92,7 @@ def main() -> int:
     print(f"  output: {out_dir}")
     print()
 
-    timeline: list[tuple[float, str, str]] = []
-    clock = Clock(mock=args.mock)
-
-    def event(side: str, label: str, advance: float = 0.0) -> None:
-        t = clock.now(side)
-        print(f"  [t+{t:5.1f}s] {label}")
-        timeline.append((t, side, label))
-        clock.advance(side, advance)
-
-    # ─── Red pipeline (attacker) ──────────────────────────────────────────
-    event("red", "red-recon  starts", RED_DURATIONS["recon"])
-    recon = _run_recon(args.target, mock=args.mock)
-    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False), encoding="utf-8")
-    event("red", f"red-recon  → {len(recon.get('open_ports', []))} open ports")
-
-    event("red", "red-vuln-scan  starts", RED_DURATIONS["vuln-scan"])
-    vuln = _run_vuln_scan(args.target, recon, mock=args.mock)
-    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
-    event("red", f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
-
-    event("red", "red-exploit-suggest  composing prose", RED_DURATIONS["exploit-suggest"])
-    suggestions = _run_exploit_suggest(vuln, mock=args.mock, use_llm=args.use_llm)
-    (out_dir / "exploit-suggestions.md").write_text(suggestions, encoding="utf-8")
-    event("red", "red-exploit-suggest  done")  # ← attacker reaches actionable impact
-
-    # ─── Blue pipeline (defender — runs concurrently with red) ────────────
-    event("blue", "blue-log-anomaly  scanning canned attack log", BLUE_DURATIONS["log-anomaly"])
-    alerts = _blue_log_anomaly(mock=args.mock)
-    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
-    event("blue", f"blue-log-anomaly  → {len(alerts)} raw alerts")
-
-    event("blue", "blue-alert-triage  classify + dedupe", BLUE_DURATIONS["alert-triage"])
-    triaged = _blue_alert_triage(alerts)
-    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged), encoding="utf-8")
-    event("blue", f"blue-alert-triage  → {len(triaged)} triaged groups")  # ← defender detects
-
-    event("blue", "blue-threat-correlate  reconstruct kill chain", BLUE_DURATIONS["threat-correlate"])
-    correlation = _blue_threat_correlate(triaged)
-    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in correlation), encoding="utf-8")
-    event("blue", f"blue-threat-correlate  → {len(correlation)} actor(s)")
-
-    # ─── Reports ─────────────────────────────────────────────────────────
-    event("red", "red-pentest-report  composing markdown", RED_DURATIONS["pentest-report"])
-    pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline, mock=args.mock)
-    (out_dir / "pentest-report.md").write_text(pentest_md, encoding="utf-8")
-
-    event("blue", "blue-incident-report  composing markdown", BLUE_DURATIONS["incident-report"])
-    incident_md = _compose_incident_report(triaged, correlation, timeline, mock=args.mock)
-    (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
-
-    end_t = max(clock.now("red"), clock.now("blue"))
-    print(f"  [t+{end_t:5.1f}s] done")
-    timeline.append((end_t, "sys", "done"))
+    timeline, pentest_md, incident_md = _run_pipeline(args, out_dir)
 
     print()
     print(f"→ artifacts at: {out_dir}")
@@ -149,11 +103,87 @@ def main() -> int:
     m = _metrics(timeline)
     sim = "  (simulated timing — mock mode)" if args.mock else ""
     print(f"→ MTTD = {m['mttd']:.0f}s{sim}")
-    print(f"  defender triaged the activity at t+{m['first_detect']:.0f}s; "
-          f"attacker reached impact at t+{m['time_to_impact']:.0f}s "
-          f"→ detected {m['detect_margin']:.0f}s before impact")
+    if m["outcome"] == "defender":
+        print(f"  defender triaged at t+{m['first_detect']:.0f}s; attacker reached "
+              f"impact at t+{m['time_to_impact']:.0f}s → detected "
+              f"{m['detect_margin']:.0f}s before impact (defender win)")
+    else:
+        print(f"  attacker reached impact at t+{m['time_to_impact']:.0f}s; defender "
+              f"triaged at t+{m['first_detect']:.0f}s → impact "
+              f"{-m['detect_margin']:.0f}s before detection (attacker win)")
 
     return 0
+
+
+def _run_pipeline(
+    args: argparse.Namespace, out_dir: Path,
+) -> tuple[list[tuple[float, str, str]], str, str]:
+    """Run the red + blue pipeline, write artifacts, return (timeline, reports).
+
+    Event-issue order puts the defender's detection (blue-alert-triage) BEFORE the
+    attacker's impact (red-exploit-suggest done). In mock mode the two-clock model
+    already orders them; ordering it here too keeps live (single-process, real
+    wall-clock) mode honest — detection genuinely precedes impact, so the MTTD
+    comparison isn't a mock-only illusion. Blue reads attack-log.txt independent
+    of red outputs, so the interleaving is safe.
+    """
+    timeline: list[tuple[float, str, str]] = []
+    clock = Clock(mock=args.mock)
+
+    def event(side: str, label: str, advance: float = 0.0) -> None:
+        t = clock.now(side)
+        print(f"  [t+{t:5.1f}s] {label}")
+        timeline.append((t, side, label))
+        clock.advance(side, advance)
+
+    # red recon → red vuln-scan
+    event("red", "red-recon  starts", RED_DURATIONS["recon"])
+    recon = _run_recon(args.target, mock=args.mock)
+    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False), encoding="utf-8")
+    event("red", f"red-recon  → {len(recon.get('open_ports', []))} open ports")
+
+    event("red", "red-vuln-scan  starts", RED_DURATIONS["vuln-scan"])
+    vuln = _run_vuln_scan(args.target, recon, mock=args.mock)
+    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
+    event("red", f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
+
+    # blue log-anomaly → alert-triage (DETECTION) — issued before red impact
+    event("blue", "blue-log-anomaly  scanning canned attack log", BLUE_DURATIONS["log-anomaly"])
+    alerts = _blue_log_anomaly(mock=args.mock)
+    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
+    event("blue", f"blue-log-anomaly  → {len(alerts)} raw alerts")
+
+    event("blue", "blue-alert-triage  classify + dedupe", BLUE_DURATIONS["alert-triage"])
+    triaged = _blue_alert_triage(alerts)
+    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged), encoding="utf-8")
+    event("blue", f"blue-alert-triage  → {len(triaged)} triaged groups")  # ← defender detects
+
+    # red exploit-suggest (IMPACT) — issued after detection
+    event("red", "red-exploit-suggest  composing prose", RED_DURATIONS["exploit-suggest"])
+    suggestions = _run_exploit_suggest(vuln, mock=args.mock, use_llm=args.use_llm)
+    (out_dir / "exploit-suggestions.md").write_text(suggestions, encoding="utf-8")
+    event("red", "red-exploit-suggest  done")  # ← attacker reaches actionable impact
+
+    # blue threat-correlate
+    event("blue", "blue-threat-correlate  reconstruct kill chain", BLUE_DURATIONS["threat-correlate"])
+    correlation = _blue_threat_correlate(triaged)
+    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in correlation), encoding="utf-8")
+    event("blue", f"blue-threat-correlate  → {len(correlation)} actor(s)")
+
+    # report-composition steps (timed), then compose with the full timeline
+    event("red", "red-pentest-report  composing markdown", RED_DURATIONS["pentest-report"])
+    event("blue", "blue-incident-report  composing markdown", BLUE_DURATIONS["incident-report"])
+
+    end_t = max(clock.now("red"), clock.now("blue"))
+    print(f"  [t+{end_t:5.1f}s] done")
+    timeline.append((end_t, "sys", "done"))
+
+    pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline, mock=args.mock)
+    (out_dir / "pentest-report.md").write_text(pentest_md, encoding="utf-8")
+    incident_md = _compose_incident_report(triaged, correlation, timeline, mock=args.mock)
+    (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
+
+    return timeline, pentest_md, incident_md
 
 
 # ─── Red pipeline implementations ────────────────────────────────────────
@@ -450,12 +480,16 @@ def _metrics(tl: list[tuple[float, str, str]]) -> dict[str, float]:
     time_to_impact = next(
         (t for t, _, lbl in tl if "exploit-suggest" in lbl and "done" in lbl), 0.0
     )
+    detect_margin = time_to_impact - first_detect
     return {
         "first_action": first_action,
         "first_detect": first_detect,
         "time_to_impact": time_to_impact,
         "mttd": max(0.0, first_detect - first_action),
-        "detect_margin": time_to_impact - first_detect,
+        # Honest, NOT clamped: negative means the attacker reached impact before
+        # the defender detected (attacker win). Live mode can legitimately hit this.
+        "detect_margin": detect_margin,
+        "outcome": "defender" if detect_margin >= 0 else "attacker",
     }
 
 
