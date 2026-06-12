@@ -1,29 +1,41 @@
 # phantom-secops
 
-> **Lab-only, mock-first SecOps proof module for the [phantom-mesh](https://github.com/markl-a/phantom-mesh) ecosystem.**
-> Cooperating agents demonstrate both defensive ops (alert triage, log anomaly, threat correlation) and red-team simulation (recon, vuln scan, POC suggestion) in an isolated lab.
-> The reliable public demo today uses canned data; live Docker/tool execution remains a hardening path.
+> A security-operations project built on my own multi-agent runtime,
+> [phantom-mesh](https://github.com/markl-a/phantom-mesh). It does **two** things:
+>
+> 1. **A SOC-concept demo** — red and blue team agents run in parallel against an
+>    isolated vulnerable lab and produce a side-by-side **mean-time-to-detect** comparison.
+> 2. **A real local-first endpoint self-check** — read-only host posture, dependency
+>    CVEs, and host intrusion detection on *this* machine, unified by an LLM agent into
+>    one prioritised, plain-language action list.
 
 [![Powered by phantom-mesh](https://img.shields.io/badge/powered%20by-phantom--mesh-purple)](https://github.com/markl-a/phantom-mesh)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Lab](https://img.shields.io/badge/targets-OWASP%20Juice%20Shop%20%7C%20DVWA-orange)](docker-compose.yml)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 
 ---
 
-## Current Verification
+## What this demonstrates
 
-Latest local verification:
+Both pillars run on the same idea — **"don't build the engine, build the brain":** wrap
+mature, battle-tested security tools and let LLM agents orchestrate, correlate, and
+explain. The differentiation is the agent layer, not a re-implemented scanner.
 
-- `python scenarios/run_kill_chain.py --target juice-shop --mock`: passed
-- `python -m pytest tests -q`: all green (run it — the suite grows as features land)
+| Pillar | What it shows |
+|---|---|
+| **SOC concept demo** (red/blue lab) | I understand how SOC work decomposes — recon→scan→exploit-suggest on one side, log-anomaly→triage→correlate on the other — and can quantify it with MTTD, the metric real SOCs care about. |
+| **Endpoint self-check tool** | I can wrap real engines (Trivy, a Sigma matcher, native OS queries), build an MCP plugin suite with a capability model, drive it from an agent, and ship something I actually run daily. |
 
-The current claim is red/blue orchestration, report generation, and lab-only evidence. It does not claim production SOC automation, 0-day discovery, or third-party scanning.
+Neither claims production SOC automation, 0-day discovery, or third-party scanning.
+Everything is lab-only or self-only and **read-only** — it advises, it never changes your
+system. See [ETHICS.md](ETHICS.md).
 
 ---
 
-## What it does (60 seconds)
+## Pillar 1 — SOC concept demo (red/blue lab)
 
-Two sets of phantom-mesh agents run in parallel against an intentionally vulnerable target (OWASP Juice Shop, DVWA, Metasploitable) running in a Docker compose lab:
+Two sets of phantom-mesh agents run in parallel against an intentionally vulnerable
+target (OWASP Juice Shop, DVWA, Metasploitable) in a Docker lab:
 
 ```
 RED TEAM (attack simulation)              BLUE TEAM (defensive ops)
@@ -40,164 +52,103 @@ Exploit Suggest ── CVE matcher,           Threat Correlate ── kill chain
 Pentest Report ─── markdown out           Incident Report ── exec summary
 ```
 
-Both teams produce markdown reports. The interesting part is the **side-by-side comparison**: how long it took the attacker to reach impact vs. how long the defender took to detect — a metric that maps directly to MTTD (mean time to detect) used in real SOCs.
-
----
-
-## Why this exists
-
-phantom-mesh's multi-agent runtime is well-suited to security operations because:
-
-1. **XDR is multi-source correlation by nature.** Trend Vision One™, Microsoft Defender XDR, CrowdStrike Falcon all cross-reference signals from endpoint + network + identity + cloud. Mapping each source to an agent and letting them coordinate via phantom-mesh is a clean fit.
-2. **Pentest workflows are sequential pipelines that branch.** Recon results feed vuln scanning, which feeds exploit suggestion. Each step is an agent with a tool budget.
-3. **LLM-assisted triage reduces alert fatigue.** The blue-team agents demonstrate this in a small, observable way.
-
-This repo is a **research playground** — not a production tool, not a 0-day weapon, not a service offering.
-
----
-
-## Quick start
-
-### Mock mode — no docker, no API key, runs anywhere in <1 second
+The interesting part is the **side-by-side comparison**: attacker time-to-impact vs.
+defender time-to-detect — i.e. **MTTD**.
 
 ```bash
-git clone https://github.com/markl-a/phantom-secops
-cd phantom-secops
-make demo-mock
-```
-
-Output:
-```
-→ phantom-secops kill-chain :: target=juice-shop mock=True
-  [t+  0.0s] red-recon          → 1 open ports
-  [t+  0.0s] red-vuln-scan      → 5 findings (1 medium, 2 low, ...)
-  [t+  0.0s] red-exploit-suggest done
-  [t+  0.0s] blue-log-anomaly   → 21 raw alerts
-  [t+  0.0s] blue-alert-triage  → 5 triaged groups
-  [t+  0.0s] blue-threat-correlate → 1 actor(s)
-  [t+  0.0s] done
-
-→ artifacts: reports/runs/<ts>/{pentest-report.md, incident-report.md,
-                                recon.json, vuln-scan.json,
-                                alerts.jsonl, triage-queue.jsonl,
-                                kill-chains.jsonl, exploit-suggestions.md}
-```
-
-This runs the full red/blue agent pipeline on canned data. Use it to
-explore the artifact shapes and the report templates without bringing up
-docker. Tests run via `make test` (7 unit tests covering pattern matchers
-and triage logic).
-
-### Live mode — against the docker lab
-
-```bash
-make lab-up                # bring up Juice Shop + DVWA on the private docker network
-make demo                  # full kill-chain against the live lab
-make lab-down              # tear down
-
-# Optional: with phantom-mesh LLM-driven prose
-phantom serve &            # phantom-mesh HTTP API at :7878
-make demo  # runner picks it up if phantom is reachable
-```
-
-The lab targets are bound to a private docker network. They are **not exposed
-to your host or the internet** (see `docker-compose.yml`). All `Makefile`
-targets are listed via `make help`.
-
----
-
-## phantom-mesh integration (live mode v2)
-
-As of 2026-05-04, phantom-secops ships three MCP server wrappers that let
-phantom-mesh agents drive the kill-chain pipeline directly:
-
-- `secops_recon`       — wraps `tools/nmap_runner.py`
-- `secops_log`         — wraps `tools/log_anomaly.py`
-- `secops_self_audit`  — scans phantom's own `agents.toml`
-
-To enable on a phantom-mesh-equipped host:
-
-```bash
-export PHANTOM_SECOPS_ROOT=$(pwd)
-make mesh-mcp-config       # prints [[mcp_servers]] entries
-make mesh-sync             # prints [agent.X] rendered fragments
-
-# Append both outputs to ~/.phantom-mesh/agents.toml on the phantom-mesh
-# coordinator host, then restart phantom serve.
-```
-
-Design: see `docs/specs/2026-05-04-phantom-mesh-integration.md`.
-Plan:   see `docs/superpowers/plans/2026-05-04-phantom-mesh-integration.md`.
-
----
-
-## Repo layout
-
-```
-phantom-secops/
-├── docker-compose.yml          # isolated lab (Juice Shop, DVWA, Metasploitable)
-├── agents/
-│   ├── red/                    # attack-side agent configs (TOML, phantom format)
-│   │   ├── recon.toml
-│   │   ├── vuln-scan.toml
-│   │   ├── exploit-suggest.toml
-│   │   └── pentest-report.toml
-│   └── blue/                   # defense-side agent configs
-│       ├── alert-triage.toml
-│       ├── log-anomaly.toml
-│       ├── threat-correlate.toml
-│       └── incident-report.toml
-├── tools/                      # phantom tool wrappers (Python)
-│   ├── nmap_runner.py
-│   ├── nuclei_runner.py
-│   └── log_ingest.py
-├── lab/                        # docs for each target's setup
-├── scenarios/                  # markdown scenarios runnable by phantom
-│   ├── full-kill-chain.md
-│   └── alert-triage-demo.md
-├── reports/                    # sample output reports (anonymized)
-├── docs/
-│   ├── ARCHITECTURE.md
-│   └── INTERVIEW-TALK-TRACK.md
-├── ETHICS.md                   # legal/ethical framing — read first
-└── LICENSE
+make demo-mock      # full red/blue pipeline on canned data, <1s, no docker/keys
+make lab-up && make demo && make lab-down   # live, against the docker lab
 ```
 
 ---
 
-## Status
+## Pillar 2 — Local-first endpoint self-check
 
-| Component | State |
-|---|---|
-| Docker compose lab (Juice Shop, DVWA) | ✅ syntax verified, runs |
-| Mock-mode end-to-end demo (`make demo-mock`) | ✅ runnable on any machine, <1s |
-| Recon agent (Nmap orchestration) | ✅ working with lab-target gate |
-| Vuln scan agent (Nuclei wrapper) | ⚙️ wrapper done; live integration WIP |
-| Exploit suggester (CVE → POC text) | ✅ template-driven prose; LLM-driven opt-in via `--use-llm` |
-| Blue team log-anomaly (URL-decoded pattern matchers) | ✅ working, 7 unit tests pass |
-| Blue team triage + correlation (group by actor + ATT&CK phase) | ✅ working |
-| Side-by-side red/blue report (pentest + incident markdown) | ✅ working |
-| Tests (`python -m pytest tests -q`) | ✅ full suite passing in the latest local verification |
-| Live-mode kill-chain (against running docker lab) | ⚙️ partial — recon path works; nuclei path needs container with nuclei pre-installed |
+A read-only, local toolchain that checks *this* machine and uses an LLM agent to turn
+raw findings into one prioritised report. Data never leaves the machine.
+
+| Capability | Engine | MCP tool |
+|---|---|---|
+| Host security posture (firewall, disk encryption, AV, UAC, ports, SIP) | native OS queries | `secops_host_audit` |
+| Dependency / OS-package CVEs (prioritised, fixable-first) | **Trivy** | `secops_vuln` |
+| Host intrusion detection (encoded PowerShell, cradles, AMSI bypass…) | a small **Sigma** engine over Windows event logs | `secops_ids` |
+| Config self-audit (phantom-mesh `agents.toml` hygiene) | native | `secops_self_audit` |
+| Lab recon / log-anomaly (Pillar 1 tools, also exposed) | nmap / pattern matcher | `secops_recon`, `secops_log` |
+
+```powershell
+.\checkup.ps1                              # one command: tests + every tool + AI report
+.\checkup.ps1 -Path D:\Projects\my-app     # scan a specific project for CVEs
+```
+
+A Windows scheduled task can run it daily and log to `reports/checkup/`. A real run on
+the author's machine surfaced **864 fixable CVEs** in a sibling project and an AV
+real-time-protection gap, then the agent produced exact upgrade versions and a
+prioritised fix order.
+
+### The capability model (`x-phantom`)
+
+Each MCP tool tags itself with `x-phantom.{classification, capabilities, read_only}`
+(e.g. `blue` / `read.host_posture` / `target.self_only`). This is the hook for a
+per-agent policy enforcer in phantom-mesh — so a blue-team agent can be denied red-team
+tools — and it's how every tool here advertises that it is read-only and self-scoped.
+
+---
+
+## Architecture
+
+```
+        ┌───────────────────────────────────────────────┐
+        │  LLM agent (phantom-mesh runtime)             │
+        │  provider fallback · tool-calling loop        │
+        └───────────────┬───────────────────────────────┘
+                        │  MCP (stdio JSON-RPC) + x-phantom policy
+   ┌────────────────────┼────────────────────────────────────────┐
+   ▼            ▼        ▼          ▼            ▼            ▼
+host_audit  vuln(Trivy) ids(Sigma) self_audit  recon(nmap)  log
+   └─────────── each: tools/<x>.py (pure, TDD'd) + an MCP server wrapper ───┘
+```
+
+Every tool is a pure Python module with an **injectable command runner**, so the logic
+is unit-tested with canned output and never touches the real OS in tests. The MCP server
+is a thin wrapper that adds the `x-phantom` metadata. Full design notes:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
+key engineering decisions: [docs/DECISIONS.md](docs/DECISIONS.md).
+
+---
+
+## Verification
+
+- `python -m pytest -q` → all green (run it; the suite grows as features land). Covers
+  matchers, parsers, prioritisation, the Sigma engine, and elevation/encoding edge cases
+  — all via injected runners, no real scanning in tests.
+- `make demo-mock` → red/blue pipeline on canned data.
+- `.\checkup.ps1` → live endpoint check + AI report on Windows.
+
+---
+
+## Engineering decisions worth a look
+
+Short version (full writeup in [docs/DECISIONS.md](docs/DECISIONS.md)):
+
+- **Injectable runners everywhere** so OS-touching tools are still unit-testable.
+- **Low false-positives over coverage** — tuned out an IDS rule that fired on a *signed
+  Microsoft module manifest*; deliberately did **not** bolt on 300+ CIS checks that would
+  be alert-fatigue noise for a personal machine.
+- **Honest degradation** — a check that needs admin returns `unknown` with a "re-run as
+  Administrator" hint, never a false `fail`.
+- **Read-only by design** — suggest, never auto-remediate (keeps the trust/liability bar low).
 
 ---
 
 ## Ethics & legality
 
-**Read [ETHICS.md](ETHICS.md) before use.**
+**Read [ETHICS.md](ETHICS.md) first.** All lab targets are intentionally-vulnerable apps
+maintained for security education; all tools are legitimate public research tools; the
+exploit-suggester emits prose only; the endpoint tools are read-only and self-only.
 
-Short version:
-- All targets in this lab are legally distributed, intentionally vulnerable applications maintained for security research and education (OWASP Juice Shop, DVWA, Metasploitable).
-- All tools used (Nmap, Nuclei, Nikto) are legitimate, publicly available defensive research tools.
-- The Exploit Suggester agent **only generates POC descriptions in text form**. It does not generate or execute weaponized exploits.
-- The lab runs on an isolated docker network — never on a public network or third-party system.
+## Related
 
----
-
-## Related projects
-
-- 🌟 [phantom-mesh](https://github.com/markl-a/phantom-mesh) — The agent runtime this depends on.
-- 📖 [GarageSwarm](https://github.com/markl-a/GarageSwarm) — Python predecessor of phantom-mesh.
+- 🌟 [phantom-mesh](https://github.com/markl-a/phantom-mesh) — the agent runtime this is built on.
 
 ## License
 
