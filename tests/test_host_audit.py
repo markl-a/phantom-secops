@@ -268,6 +268,23 @@ def test_audit_host_no_hint_when_all_known():
 
 # ── Runner encoding robustness ────────────────────────────────────────────────
 
+def test_unknown_detail_is_sanitised_of_garbled_chars():
+    # Localized PowerShell error text over a redirected pipe can arrive as
+    # undecodable bytes -> U+FFFD. The unknown detail must stay readable.
+    from tools.host_audit import _unknown
+    f = _unknown("bitlocker", CmdResult(code=1, out="",
+                                        err="Get-CimInstance : ��� not found"))
+    assert "�" not in f["detail"]
+    assert f["status"] == "unknown"
+
+
+def test_unknown_detail_falls_back_when_nothing_readable():
+    from tools.host_audit import _unknown
+    f = _unknown("bitlocker", CmdResult(code=5, out="", err="���"))
+    assert "�" not in f["detail"]
+    assert "5" in f["detail"]  # falls back to exit code
+
+
 def test_default_run_decodes_bad_bytes_without_crashing():
     # zh-TW Windows emits cp950 error text; the runner must not raise on bytes
     # that are invalid under the assumed encoding. Bad bytes degrade, ASCII survives.

@@ -50,9 +50,16 @@ def _finding(check: str, status: str, severity: str, detail: str) -> dict:
     return {"check": check, "status": status, "severity": severity, "detail": detail}
 
 
+def _clean(text: str) -> str:
+    """Drop replacement/control chars left by undecodable (localized) output."""
+    kept = "".join(ch for ch in text.replace("�", " ")
+                   if ch.isprintable() or ch == " ")
+    return " ".join(kept.split())
+
+
 def _unknown(check: str, r: CmdResult) -> dict:
-    reason = (r.err.strip() or r.out.strip() or f"exit {r.code}")[:200]
-    return _finding(check, "unknown", "info", f"could not query: {reason}")
+    reason = _clean(r.err) or _clean(r.out) or f"exit {r.code}"
+    return _finding(check, "unknown", "info", f"could not query: {reason[:200]}")
 
 
 def _ps(command: str) -> list:
