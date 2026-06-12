@@ -5,15 +5,26 @@ Trend Micro, CrowdStrike, Palo Alto, etc.
 
 ## Elevator pitch (30 seconds)
 
-> "I built a multi-agent platform on top of my own AI agent runtime that runs
-> red and blue team workflows in parallel against an isolated lab. The
-> attack side does recon → vuln-scan → POC suggestion → pentest report.
-> The defense side does log anomaly → triage → correlation → incident report.
-> The interesting bit is the side-by-side comparison: I can quantify
-> mean-time-to-detect against a known attack pattern, which is the metric
-> SOCs actually care about. It's not a production tool. It's a research
-> playground that demonstrates how XDR-style multi-source correlation maps
-> cleanly onto a multi-agent architecture."
+> "I built a security-ops project on my own multi-agent runtime that does two
+> things. One: a red/blue **SOC concept demo** — attack and defense agents run
+> in parallel against an isolated lab and I quantify **mean-time-to-detect**,
+> the metric SOCs care about. Two: a real **local-first endpoint self-check** I
+> actually run daily — read-only host posture, dependency CVEs via Trivy, and
+> host intrusion detection with a small Sigma engine, all unified by an LLM
+> agent into one prioritised, plain-language fix list, with the data never
+> leaving the machine. The thesis across both is *don't build the engine, build
+> the brain* — wrap mature tools, put the value in the agent layer."
+
+## The endpoint tool, concretely (if they want the "real" one)
+
+> "It's a Python toolchain — each tool is a pure module with an injectable
+> command runner, so the OS-touching logic is unit-tested with canned output
+> (96 tests, no real scanning in CI). Each is wrapped as an MCP server tagged
+> with an `x-phantom` capability label (classification / capabilities /
+> read_only), which is the hook for per-agent policy enforcement. One command,
+> `checkup.ps1`, runs them all and an agent synthesises the report; a scheduled
+> task runs it daily. A real run found 864 fixable CVEs in one of my projects
+> and an AV gap, and the agent gave exact upgrade versions."
 
 ## Likely questions
 
@@ -103,6 +114,32 @@ vuln-scan agent's output — it can't pull a CVE out of thin air. Beyond that,
 the cve_lookup tool reads from a local NVD mirror, so even if the LLM names a
 CVE, the prose has to be grounded in NVD's actual record. If the LLM names a
 CVE that doesn't exist in the mirror, the report flags it as "unverified".
+
+### "Tell me about a tricky bug or a judgment call." (they always ask this)
+
+Pick one from [DECISIONS.md](DECISIONS.md); the strongest are:
+
+- **The false positive.** "My IDS flagged a *signed Microsoft module manifest*
+  as a download-and-execute cradle — it mentions a web type and Invoke-Expression
+  in its text. I tightened the rule and added a manifest filter, and went from 5
+  false alerts to 0 on 800 events. It's a good example of why low-false-positive
+  beats high-coverage for a tool people actually run."
+- **The honest `unknown`.** "BitLocker needs admin; run unelevated it returned
+  empty. I made it report `unknown` with a re-run-as-admin hint instead of a
+  false `fail` — a wrong 'your disk is unencrypted' erodes trust in every other
+  finding."
+- **The double-scan.** "The daily check-up scanned once deterministically and
+  the agent re-scanned via its own tool call; on a big repo the agent's scan
+  timed out and it reported 'no findings' while the log showed 864. I fixed it
+  by feeding the captured findings to the agent instead of letting it re-scan."
+
+### "Why not just use Wazuh / osquery / Vanta?"
+
+Different niche. Wazuh/osquery are server + agent-fleet platforms for SOC teams;
+Vanta is cloud compliance SaaS. This is the opposite end: **local-first,
+read-only, single-operator, data-never-leaves-the-machine**, with an AI layer
+that unifies several engines' output. It's not competing with them — it fills
+the "one person wants to check their own machine without standing up infra" gap.
 
 ## Don't say
 
