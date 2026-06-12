@@ -51,9 +51,14 @@ def _finding(check: str, status: str, severity: str, detail: str) -> dict:
 
 
 def _clean(text: str) -> str:
-    """Drop replacement/control chars left by undecodable (localized) output."""
-    kept = "".join(ch for ch in text.replace("�", " ")
-                   if ch.isprintable() or ch == " ")
+    """Keep only readable ASCII from a reason string.
+
+    Localized PowerShell error bytes reach us in an unreliable encoding; decoded
+    as UTF-8 they become valid-but-wrong glyphs (or U+FFFD). The diagnostic value
+    lives in the ASCII parts (cmdlet name, path), so drop everything else rather
+    than chase per-locale codecs.
+    """
+    kept = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in text)
     return " ".join(kept.split())
 
 

@@ -285,6 +285,17 @@ def test_unknown_detail_falls_back_when_nothing_readable():
     assert "5" in f["detail"]  # falls back to exit code
 
 
+def test_unknown_detail_strips_misdecoded_non_ascii_keeps_ascii():
+    # Real case: cp950 error bytes decoded as UTF-8 become valid-but-wrong
+    # glyphs (e.g. U+06B5), not U+FFFD. Keep the ASCII diagnostic, drop the junk.
+    from tools.host_audit import _unknown
+    f = _unknown("bitlocker", CmdResult(
+        code=1, out="", err="Get-CimInstance : ڵֵЯ At C:\\Windows\\x.ps1"))
+    assert "Get-CimInstance" in f["detail"]
+    assert "C:\\Windows\\x.ps1" in f["detail"]
+    assert "ڵ" not in f["detail"] and "Я" not in f["detail"]
+
+
 def test_default_run_decodes_bad_bytes_without_crashing():
     # zh-TW Windows emits cp950 error text; the runner must not raise on bytes
     # that are invalid under the assumed encoding. Bad bytes degrade, ASCII survives.
