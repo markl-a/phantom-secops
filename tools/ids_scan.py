@@ -9,6 +9,16 @@ modifiers (contains/startswith/endswith/re), and conditions of the form
 Without Sysmon installed (which needs admin) the richest source is the
 PowerShell Operational log (Event 4104 script-block text) — readable without
 elevation and where a lot of real attacker activity shows up.
+
+Coverage note: the PowerShell log only captures every script block when
+**Script Block Logging** is enabled. Without it (the default), only blocks
+Windows deems suspicious are auto-logged, so live coverage is thin. Enable it
+once (elevated) for effective detection:
+
+    reg add HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging /v EnableScriptBlockLogging /t REG_DWORD /d 1 /f
+
+Installing Sysmon (also elevated) adds process/network/registry telemetry that
+many Sigma rules target.
 """
 
 from __future__ import annotations
