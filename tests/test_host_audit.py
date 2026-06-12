@@ -305,6 +305,13 @@ def test_default_run_decodes_bad_bytes_without_crashing():
     assert "OK" in r.out
 
 
+def test_default_run_honours_timeout():
+    # A command exceeding the timeout must degrade to a result, not hang or raise.
+    r = _default_run([sys.executable, "-c", "import time; time.sleep(3)"], timeout=1)
+    assert r.code != 0
+    assert "timed out" in r.err.lower()
+
+
 def test_audit_host_dispatches_by_platform():
     # Real (default) check registry for each platform should be non-empty.
     win = audit_host(platform_name="windows", run=fixed_run("Domain=True\nPrivate=True\nPublic=True\n"))

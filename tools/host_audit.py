@@ -30,13 +30,13 @@ class CmdResult:
 Run = Callable[[list], CmdResult]
 
 
-def _default_run(args: list) -> CmdResult:
+def _default_run(args: list, timeout: int = 30) -> CmdResult:
     # Capture bytes and decode as UTF-8 with replacement: the locale codec
     # (e.g. cp950 on zh-TW Windows) raises on bytes outside its range, which
     # would otherwise turn a normal command into a spurious failure. PowerShell
     # is asked to emit UTF-8 (see _ps), so this also keeps non-ASCII readable.
     try:
-        p = subprocess.run(args, capture_output=True, timeout=30)
+        p = subprocess.run(args, capture_output=True, timeout=timeout)
         return CmdResult(
             code=p.returncode,
             out=p.stdout.decode("utf-8", errors="replace"),
