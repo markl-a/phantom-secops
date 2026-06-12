@@ -80,20 +80,22 @@ feature. I haven't tested that for security workloads yet.
 
 ### "Walk me through the kill-chain demo."
 
-Use the timeline in `scenarios/full-kill-chain.md`. Key milestones to call
-out as you walk through:
+Run `python scenarios/run_kill_chain.py --mock` (or `make demo-mock`) and walk
+the printed timeline + the two reports in `reports/runs/<ts>/`. The timing in
+mock mode is **simulated** (clearly labelled) so the comparison is meaningful;
+the milestones:
 
-1. t+0: red recon starts, blue log-anomaly starts.
-2. t+10s: red has nmap output, blue has its first scanner alerts.
-3. t+15s: red kicks off Nuclei. Blue triage promotes scanner activity to P2.
-4. t+45s: red has vuln findings. Blue threat-correlate links the recon and
-   scan alerts to a single actor.
-5. t+60s: both reports finalize. The blue-team incident report names the
-   attacker's source IP, lists the techniques used, and lists IoCs. The red-team
-   pentest report lists the vulns found and mitigation guidance.
+1. t+0s: red recon starts, blue log-anomaly starts (two concurrent clocks).
+2. t+8s: blue surfaces its first scanner alerts.
+3. **t+15s: blue triage groups the activity — first detection (MTTD = 15s).**
+4. t+50s: red exploit-suggest finishes — the attacker reaches actionable impact.
+5. End: the incident report names the actor + ATT&CK phases + P1/P2/P3 queue;
+   the pentest report lists findings + prose-only mitigations.
 
-The point is that **detection lag is small when the analysis pipeline runs
-concurrently with the attack** — which is what real SOC tooling tries to do.
+The headline: **the defender detected the activity 35s before the attacker
+reached impact (a defender win)**. The metric is honest in both directions — if
+detection lands after impact, the report says so (attacker win). That "did we
+detect before impact, and by how much" question is exactly what a SOC measures.
 
 ### "What would you build next?"
 
@@ -109,11 +111,14 @@ In priority order:
 
 ### "How do you keep the LLM from hallucinating CVE numbers?"
 
-Two checks. The exploit-suggester only references CVEs that appear in the
-vuln-scan agent's output — it can't pull a CVE out of thin air. Beyond that,
-the cve_lookup tool reads from a local NVD mirror, so even if the LLM names a
-CVE, the prose has to be grounded in NVD's actual record. If the LLM names a
-CVE that doesn't exist in the mirror, the report flags it as "unverified".
+Honest answer: **today the exploit-suggester doesn't use an LLM at all** — it's
+templated prose keyed off the scan findings (`_run_exploit_suggest` /
+`_exploit_prose`), so it structurally can't invent a CVE: it only emits text for
+findings the scanner actually produced. The `--use-llm` flag is a stub, not
+wired. *If* I add LLM-written prose, the grounding plan is the same constraint —
+only reference CVEs present in the scan output — plus a lookup against a local
+NVD record so any CVE the model names is verified or flagged "unverified". I'd
+rather say "it's templated" than claim an NVD mirror I haven't built.
 
 ### "Tell me about a tricky bug or a judgment call." (they always ask this)
 
