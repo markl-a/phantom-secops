@@ -13,17 +13,26 @@ host = "127.0.0.1"   # local-only; no cluster / external exposure
 port = 7878
 
 # ── Providers ─────────────────────────────────────────────────────────────────
-# Primary: Gemini (generous free-tier limits; handles tool calls well). The
-# secops system prompt + 3 MCP tool schemas push each request to ~9.5k tokens,
-# which exceeds Groq's free-tier 8000 TPM limit — so Gemini leads, Groq is
-# fallback only.
+# Primary: Cerebras → gpt-oss-120b. Wafer-scale fast, generous free tier, and
+# gpt-oss does clean non-looping tool calls (unlike llama-3.3). The key only has
+# access to gpt-oss-120b / zai-glm-4.7 — verified via /v1/models. Keys are
+# referenced via api_key_env only, never inlined (see secops_self_audit).
+[providers.cerebras]
+type = "openai_compat"
+url = "https://api.cerebras.ai/v1"
+api_key_env = "CEREBRAS_API_KEY"
+default_model = "gpt-oss-120b"
+
+# Note: opencode and openrouter keys had no credits on 2026-06-12 (401/402);
+# omitted so phantom doesn't waste a round-trip failing them. Re-add a
+# [providers.opencode] (type="opencode", → claude-sonnet-4-6) once funded for
+# the best non-looping tool-calling.
+
 [providers.gemini]
 type = "gemini"
 api_key_env = "GEMINI_API_KEY"
 default_model = "gemini-2.5-flash"
 
-# llama-3.3-70b has a 12000 TPM free-tier limit (vs gpt-oss-20b's 8000), so the
-# ~8.9k-token tool-augmented request fits. gpt-oss-20b kept rejecting with 413.
 [providers.groq]
 type = "groq"
 api_key_env = "GROQ_API_KEY"
@@ -68,8 +77,8 @@ env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
 [agent.secops]
 # No agent-level `model`: each provider uses its own default_model, so the
 # groq fallback doesn't inherit gemini's model name (which caused a 404).
-provider  = "groq"
-providers = ["groq", "gemini"]   # groq primary (gemini key is quota-limited today)
+provider  = "cerebras"
+providers = ["cerebras", "groq", "gemini"]   # funded/working only; opencode+openrouter omitted (no credits)
 tools     = []                    # MCP tools auto-append; keep request small for groq's 8000 TPM
 instructions = """
 You are a defensive sec-ops agent in an isolated research lab. Three tools:
@@ -89,5 +98,5 @@ output; report tool errors verbatim; stay defensive and in-scope; be concise.
 """
 
 [agent.secops.limits]
-max_tool_calls = 3     # tight: llama-3.3 tends to re-call; cap forces final synthesis
-max_runtime_s  = 120
+max_tool_calls = 6     # Claude doesn't loop, so allow scan + read + synthesise
+max_runtime_s  = 150
