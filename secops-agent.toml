@@ -73,6 +73,12 @@ command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_vuln_server"]
 env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
 
+[[mcp_servers]]
+name    = "secops_ids"
+command = "python"
+args    = ["-m", "phantom_secops.mcp.secops_ids_server"]
+env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+
 # ── The security-specialised agent ────────────────────────────────────────────
 [agent.secops]
 # No agent-level `model`: each provider uses its own default_model, so the
@@ -92,6 +98,12 @@ You are a defensive sec-ops agent in an isolated research lab. Three tools:
   (firewall, disk encryption, antivirus, UAC, listening ports, SIP). Use this
   when the user asks to check their machine. Read-only; lead with fail/warn
   findings and explain each plainly.
+- secops_vuln_scan_vulns: scan a path for dependency/OS-package CVEs (Trivy),
+  returned fixable-first. Triage which matter and give exact upgrade versions.
+- secops_ids_scan_intrusions: host intrusion detection — match Sigma rules
+  against recent Windows event logs (encoded PowerShell, download cradles, AMSI
+  bypass, credential dumping). For each alert, judge likely benign vs real and
+  say why; many download+iex hits are package installers, not attacks.
 
 Rules: never claim a scan/audit without calling the tool and seeing real
 output; report tool errors verbatim; stay defensive and in-scope; be concise.
