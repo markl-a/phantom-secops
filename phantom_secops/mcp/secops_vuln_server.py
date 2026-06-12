@@ -47,9 +47,9 @@ def tool_definitions() -> list[Tool]:
                     },
                     "max_findings": {
                         "type": "integer",
-                        "default": 50,
+                        "default": 15,
                         "minimum": 1,
-                        "description": "cap returned findings (already prioritised)",
+                        "description": "cap returned findings (already prioritised, fixable-first)",
                     },
                 },
                 "required": ["path"],
@@ -65,9 +65,15 @@ def tool_definitions() -> list[Tool]:
 
 def scan_vulns_impl(args: dict[str, Any]) -> dict[str, Any]:
     path = args["path"]
-    max_findings = int(args.get("max_findings", 50))
+    max_findings = int(args.get("max_findings", 15))
     result = scan_vulns(path)
-    result["findings"] = result["findings"][:max_findings]
+    # Compact each finding (drop the long `title`; the CVE id is enough for the
+    # agent to cite and look up) to keep the tool result within the model's
+    # per-request token budget.
+    result["findings"] = [
+        {k: f[k] for k in ("id", "pkg", "installed", "fixed", "severity")}
+        for f in result["findings"][:max_findings]
+    ]
     return result
 
 
