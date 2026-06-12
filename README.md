@@ -15,7 +15,7 @@
 Latest local verification:
 
 - `python scenarios/run_kill_chain.py --target juice-shop --mock`: passed
-- `python -m pytest tests -q`: 67 passed
+- `python -m pytest tests -q`: 78 passed
 
 The current claim is red/blue orchestration, report generation, and lab-only evidence. It does not claim production SOC automation, 0-day discovery, or third-party scanning.
 
@@ -177,7 +177,7 @@ phantom-secops/
 | Blue team log-anomaly (URL-decoded pattern matchers) | ✅ working, 7 unit tests pass |
 | Blue team triage + correlation (group by actor + ATT&CK phase) | ✅ working |
 | Side-by-side red/blue report (pentest + incident markdown) | ✅ working |
-| Tests (`python -m pytest tests -q`) | ✅ 67 tests passing in the latest local verification |
+| Tests (`python -m pytest tests -q`) | ✅ 78 tests passing in the latest local verification |
 | Live-mode kill-chain (against running docker lab) | ⚙️ partial — recon path works; nuclei path needs container with nuclei pre-installed |
 
 ---
