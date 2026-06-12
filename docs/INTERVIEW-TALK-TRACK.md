@@ -32,8 +32,9 @@ Trend Micro, CrowdStrike, Palo Alto, etc.
 
 Short answer: yes, with a caveat. All targets are intentionally vulnerable
 applications maintained for security education (OWASP Juice Shop, DVWA,
-Metasploitable). All tools are widely deployed defensive research tools
-(Nmap, Nuclei, Nikto). The lab runs on an isolated docker network with no
+Metasploitable). All tools are widely deployed defensive research tools —
+Nmap and Nuclei are wired (Nikto is installed in the lab image but not yet
+invoked by the orchestrator). The lab runs on an isolated docker network with no
 host port exposure by default. The exploit-suggester agent only produces
 prose, not runnable code. See ETHICS.md for full scoping.
 

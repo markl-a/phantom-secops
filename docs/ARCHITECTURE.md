@@ -102,9 +102,10 @@ per-step durations (see `RED_DURATIONS`/`BLUE_DURATIONS` in
 `scenarios/run_kill_chain.py`), which is what makes the MTTD comparison
 meaningful without waiting on real scans.
 
-**Live mode** (`make lab-up && make demo`) is partial today: the recon agent
-(nmap via `tools/nmap_runner.py`) is real, but the vuln-scan step is a stub —
-`tools/nuclei_runner.py` exists but is not yet wired into the orchestrator, so
-live runs currently produce empty findings. Wiring nuclei (and keeping it
-serial so the attacker's request pattern stays plausible to the blue team) is
-the next live-mode milestone.
+**Live mode** (`make lab-up && make demo`) wires real tools: recon (nmap via
+`tools/nmap_runner.py`) and vuln-scan (`tools/nuclei_runner.py`, called per HTTP
+endpoint derived from the recon output, kept serial so the attacker's request
+pattern stays plausible to the blue team). It has **not been verified
+end-to-end on this machine** — that needs the docker lab up — and `dnsrecon /
+subfinder / nikto` from the conceptual diagram have no runners yet. So the mock
+demo remains the reliable, full-story path; live verification is the milestone.

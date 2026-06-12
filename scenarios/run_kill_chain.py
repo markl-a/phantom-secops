@@ -28,6 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools import nmap_runner  # type: ignore[import-not-found]  # noqa: E402
+from tools import nuclei_runner  # type: ignore[import-not-found]  # noqa: E402
 
 REPORTS_DIR = REPO_ROOT / "reports"
 MOCKS_DIR = REPO_ROOT / "lab" / "mocks"
@@ -194,13 +195,34 @@ def _run_recon(target: str, mock: bool) -> dict[str, Any]:
     return nmap_runner.run(target)
 
 
-def _run_vuln_scan(target: str, recon: dict[str, Any], mock: bool) -> dict[str, Any]:
-    _ = recon  # vuln-scan reads recon ports in live mode (see tools/nuclei_runner.py)
+def _http_targets(target: str, recon: dict[str, Any]) -> list[str]:
+    """Derive HTTP(S) URLs to scan from recon's open ports (fallback: http://<target>)."""
+    urls: list[str] = []
+    for p in recon.get("open_ports", []):
+        svc = (p.get("service") or "").lower()
+        port = p.get("port")
+        if "http" in svc or port in (80, 443, 3000, 8080, 8443):
+            scheme = "https" if ("https" in svc or port in (443, 8443)) else "http"
+            urls.append(f"{scheme}://{target}:{port}")
+    return urls or [f"http://{target}"]
+
+
+def _run_vuln_scan(
+    target: str, recon: dict[str, Any], mock: bool, nuclei_run=None,
+) -> dict[str, Any]:
     if mock:
         return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text(encoding="utf-8"))
-    # Live mode would call nuclei_runner.run(...) for each open HTTP port from
-    # the recon JSON. Skipped in this minimal demo path; see tools/nuclei_runner.py.
-    return {"target": target, "findings": []}
+    # Live mode: run nuclei against each HTTP endpoint found in recon and
+    # aggregate. The runner self-gates to in-lab hosts and returns an {"error":
+    # ...} dict (no findings) when nuclei/docker is unavailable, so a missing lab
+    # degrades to empty findings rather than crashing. `nuclei_run` is injectable
+    # for tests.
+    nuclei_run = nuclei_run or nuclei_runner.run
+    findings: list[dict[str, Any]] = []
+    for url in _http_targets(target, recon):
+        result = nuclei_run(url)
+        findings.extend(result.get("findings", []))
+    return {"target": target, "findings": findings}
 
 
 def _run_exploit_suggest(vuln: dict[str, Any], mock: bool, use_llm: bool) -> str:

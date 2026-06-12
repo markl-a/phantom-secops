@@ -7,7 +7,9 @@ real, non-zero number instead of 0.0s.
 
 from __future__ import annotations
 
-from scenarios.run_kill_chain import Clock, _metrics, RED_DURATIONS, BLUE_DURATIONS
+from scenarios.run_kill_chain import (
+    Clock, _metrics, _render_mttd, RED_DURATIONS, BLUE_DURATIONS,
+)
 
 
 def test_clock_mock_tracks_sides_independently():
@@ -78,6 +80,34 @@ def test_metrics_reports_attacker_win_when_detect_after_impact():
     m = _metrics(tl)
     assert m["detect_margin"] == -10.0
     assert m["outcome"] == "attacker"
+
+
+def test_render_mttd_defender_win_text():
+    # The report text must match _metrics — the honesty contract.
+    out = _render_mttd(SYN_TL)
+    assert "MTTD = 15s" in out
+    assert "defender detected **35s before**" in out
+
+
+def test_render_mttd_attacker_win_text():
+    tl = [
+        (0.0, "red", "red-recon  starts"),
+        (50.0, "red", "red-exploit-suggest  done"),
+        (60.0, "blue", "blue-alert-triage  → 5 triaged groups"),
+    ]
+    out = _render_mttd(tl)
+    assert "attacker reached impact **10s before** detection" in out
+
+
+def test_main_prints_honest_defender_win_narrative(capsys, tmp_path, monkeypatch):
+    import scenarios.run_kill_chain as rk
+    monkeypatch.setattr("sys.argv",
+                        ["run_kill_chain.py", "--mock", "--out", str(tmp_path)])
+    assert rk.main() == 0
+    out = capsys.readouterr().out
+    assert "MTTD = 15s" in out
+    assert "(simulated timing — mock mode)" in out
+    assert "defender win" in out
 
 
 def test_detection_issued_before_impact_in_pipeline_order(tmp_path):

@@ -65,10 +65,12 @@ make demo-mock      # full red/blue pipeline on canned data, <1s, no docker/keys
 make lab-up && make demo && make lab-down   # live, against the docker lab
 ```
 
-> Honesty note: mock timing is **simulated** (clearly labelled in the output). Live mode is
-> partial — nmap recon is real, but the nuclei vuln-scan step isn't wired yet, so live
-> findings are currently empty. The mock demo tells the full story; the live path is a
-> hardening milestone.
+> Honesty note: mock timing is **simulated** (clearly labelled in the output). Live mode:
+> nmap recon and the nuclei vuln-scan are both wired (nuclei self-installs in the lab
+> container on first run), but the live path hasn't been verified end-to-end here — it needs
+> the docker lab up. The diagram's *dnsrecon / subfinder / nikto* are conceptual/planned (no
+> runners yet; nikto is installed in the lab image but not invoked). The mock demo tells the
+> full story; live is the hardening milestone.
 
 ---
 

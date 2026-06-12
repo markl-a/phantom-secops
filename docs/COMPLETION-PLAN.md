@@ -69,3 +69,20 @@ Recommended order: **1 → 4 → 2 → 3 → 5**. Minimum viable "done" = 1 + 4 
 **Status: the done-line (G1 + G3 + G4, + Phase 1 + Phase 4) is met — the MTTD signature is
 real and honest in both modes and the docs are truthful.** Remaining items need docker (G2)
 or are explicitly post-portfolio (G5–G7).
+- **Verification (workflow) — DONE.** 3 lens-diverse adversarial reviewers (correctness /
+  honesty / tests) + synthesis. Verdict: **no blockers, correctness a clean bill of health,
+  MTTD mechanism correct.** Two should-fix doc items (README diagram + talk-track still listed
+  unimplemented dnsrecon/subfinder/nikto) and high-value display tests recommended.
+- **G2 (nuclei wiring) — code DONE (live run still gated on docker).** Wired
+  `_run_vuln_scan` to call `tools/nuclei_runner.py` per HTTP endpoint from recon (injectable
+  for tests; degrades to empty on runner error). Added `_http_targets`. 6 new tests. The live
+  end-to-end run still needs `make lab-up` (docker) to verify.
+- **Verification follow-ups — DONE.** Fixed the README/talk-track/ARCHITECTURE tool-list
+  honesty (nuclei now wired-but-unverified; dnsrecon/subfinder/nikto marked planned/no
+  runner). Added display-layer tests locking the report-honesty contract (`_render_mttd`
+  defender+attacker win, `main()` narrative via capsys). Full suite **114 passing**.
+
+**Loop pause point:** every solo, non-gated item toward the Definition of Done is complete.
+What remains is gated on **docker** (verify the live kill-chain end-to-end, G2's last mile)
+or is **post-portfolio** (G5–G7: render gaps, full phantom-mesh orchestration, LLM prose),
+plus the **merge of PR #10** (user's call). Pausing per the operating rules.
