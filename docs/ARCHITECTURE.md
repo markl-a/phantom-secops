@@ -96,10 +96,16 @@ SaaS console.
 
 ## Performance notes
 
-The full kill-chain demo runs in ~60s on a M2 Mac. The bottleneck is Nuclei
-(~40s of that), not the agents. The phantom-mesh tool-calling overhead is in
-single-digit seconds across the whole run.
+The **mock** demo (`make demo-mock`) runs in well under a second — it reads
+canned recon/vuln/log fixtures, and the timeline it prints uses *simulated*
+per-step durations (see `RED_DURATIONS`/`BLUE_DURATIONS` in
+`scenarios/run_kill_chain.py`), which is what makes the MTTD comparison
+meaningful without waiting on real scans.
 
-We chose to keep Nuclei serial because parallelism would change the request
-pattern visible to the blue team in unrealistic ways — it's important that
-the attacker's pattern looks plausible.
+**Live mode** (`make lab-up && make demo`) wires real tools: recon (nmap via
+`tools/nmap_runner.py`) and vuln-scan (`tools/nuclei_runner.py`, called per HTTP
+endpoint derived from the recon output, kept serial so the attacker's request
+pattern stays plausible to the blue team). It has **not been verified
+end-to-end on this machine** — that needs the docker lab up — and `dnsrecon /
+subfinder / nikto` from the conceptual diagram have no runners yet. So the mock
+demo remains the reliable, full-story path; live verification is the milestone.

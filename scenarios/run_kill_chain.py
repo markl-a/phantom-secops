@@ -28,9 +28,49 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from tools import nmap_runner  # type: ignore[import-not-found]  # noqa: E402
+from tools import nuclei_runner  # type: ignore[import-not-found]  # noqa: E402
 
 REPORTS_DIR = REPO_ROOT / "reports"
 MOCKS_DIR = REPO_ROOT / "lab" / "mocks"
+
+# Simulated per-step durations (seconds) used in --mock mode so the red and blue
+# timelines are meaningful instead of all-zero. Live mode ignores these and uses
+# real wall-clock.
+#
+# Provenance: these are ILLUSTRATIVE order-of-magnitude operator-time estimates
+# (e.g. recon ≈ an nmap -sV of one host; threat-correlate ≈ an analyst review
+# window), NOT measured benchmarks. They are scenario inputs that make the
+# simulated timeline plausible; the *mechanism* (concurrent clocks, milestone
+# extraction, the MTTD comparison) is what's real and tested — the numbers are
+# not a claim about real detection latency.
+RED_DURATIONS = {
+    "recon": 12.0, "vuln-scan": 30.0, "exploit-suggest": 8.0, "pentest-report": 5.0,
+}
+BLUE_DURATIONS = {
+    "log-anomaly": 8.0, "alert-triage": 7.0, "threat-correlate": 35.0, "incident-report": 5.0,
+}
+
+
+class Clock:
+    """Two concurrent clocks (red attacker, blue defender).
+
+    In mock mode each side advances by simulated step durations; in live mode
+    both report real elapsed wall-clock and `advance` is a no-op.
+    """
+
+    def __init__(self, mock: bool) -> None:
+        self.mock = mock
+        self._t0 = time.time()
+        self._t = {"red": 0.0, "blue": 0.0}
+
+    def now(self, side: str) -> float:
+        if not self.mock:
+            return time.time() - self._t0
+        return self._t.get(side, 0.0)
+
+    def advance(self, side: str, secs: float) -> None:
+        if self.mock and side in self._t:
+            self._t[side] += secs
 
 
 def main() -> int:
@@ -53,67 +93,98 @@ def main() -> int:
     print(f"  output: {out_dir}")
     print()
 
-    timeline: list[tuple[str, str]] = []
-    t0 = time.time()
+    timeline, pentest_md, incident_md = _run_pipeline(args, out_dir)
 
-    def event(label: str) -> None:
-        elapsed = time.time() - t0
-        line = f"  [t+{elapsed:5.1f}s] {label}"
-        print(line)
-        timeline.append((f"{elapsed:.1f}", label))
-
-    # ─── Red pipeline ─────────────────────────────────────────────────────
-    event("red-recon  starts")
-    recon = _run_recon(args.target, mock=args.mock)
-    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False), encoding="utf-8")
-    event(f"red-recon  → {len(recon.get('open_ports', []))} open ports")
-
-    event("red-vuln-scan  starts")
-    vuln = _run_vuln_scan(args.target, recon, mock=args.mock)
-    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
-    event(f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
-
-    event("red-exploit-suggest  composing prose")
-    suggestions = _run_exploit_suggest(vuln, mock=args.mock, use_llm=args.use_llm)
-    (out_dir / "exploit-suggestions.md").write_text(suggestions, encoding="utf-8")
-    event("red-exploit-suggest  done")
-
-    # ─── Blue pipeline (synthetic — would normally run continuously) ─────
-    event("blue-log-anomaly  scanning canned attack log")
-    alerts = _blue_log_anomaly(mock=args.mock)
-    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
-    event(f"blue-log-anomaly  → {len(alerts)} raw alerts")
-
-    event("blue-alert-triage  classify + dedupe")
-    triaged = _blue_alert_triage(alerts)
-    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged), encoding="utf-8")
-    event(f"blue-alert-triage  → {len(triaged)} triaged groups")
-
-    event("blue-threat-correlate  reconstruct kill chain")
-    correlation = _blue_threat_correlate(triaged)
-    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in correlation), encoding="utf-8")
-    event(f"blue-threat-correlate  → {len(correlation)} actor(s)")
-
-    # ─── Reports ─────────────────────────────────────────────────────────
-    event("red-pentest-report  composing markdown")
-    pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline)
-    (out_dir / "pentest-report.md").write_text(pentest_md, encoding="utf-8")
-
-    event("blue-incident-report  composing markdown")
-    incident_md = _compose_incident_report(triaged, correlation, timeline)
-    (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
-
-    event("done")
     print()
     print(f"→ artifacts at: {out_dir}")
     print(f"   - pentest-report.md   ({len(pentest_md):,} bytes)")
     print(f"   - incident-report.md  ({len(incident_md):,} bytes)")
     print(f"   - {len(list(out_dir.glob('*.json'))) + len(list(out_dir.glob('*.jsonl')))} structured artifacts")
     print()
-    print(f"→ MTTD (first probe → first triaged alert): "
-          f"{_mttd_seconds(timeline):.1f}s in this run")
+    m = _metrics(timeline)
+    sim = "  (simulated timing — mock mode)" if args.mock else ""
+    print(f"→ MTTD = {m['mttd']:.0f}s{sim}")
+    if m["outcome"] == "defender":
+        print(f"  defender triaged at t+{m['first_detect']:.0f}s; attacker reached "
+              f"impact at t+{m['time_to_impact']:.0f}s → detected "
+              f"{m['detect_margin']:.0f}s before impact (defender win)")
+    else:
+        print(f"  attacker reached impact at t+{m['time_to_impact']:.0f}s; defender "
+              f"triaged at t+{m['first_detect']:.0f}s → impact "
+              f"{-m['detect_margin']:.0f}s before detection (attacker win)")
 
     return 0
+
+
+def _run_pipeline(
+    args: argparse.Namespace, out_dir: Path,
+) -> tuple[list[tuple[float, str, str]], str, str]:
+    """Run the red + blue pipeline, write artifacts, return (timeline, reports).
+
+    Event-issue order puts the defender's detection (blue-alert-triage) BEFORE the
+    attacker's impact (red-exploit-suggest done). In mock mode the two-clock model
+    already orders them; ordering it here too keeps live (single-process, real
+    wall-clock) mode honest — detection genuinely precedes impact, so the MTTD
+    comparison isn't a mock-only illusion. Blue reads attack-log.txt independent
+    of red outputs, so the interleaving is safe.
+    """
+    timeline: list[tuple[float, str, str]] = []
+    clock = Clock(mock=args.mock)
+
+    def event(side: str, label: str, advance: float = 0.0) -> None:
+        t = clock.now(side)
+        print(f"  [t+{t:5.1f}s] {label}")
+        timeline.append((t, side, label))
+        clock.advance(side, advance)
+
+    # red recon → red vuln-scan
+    event("red", "red-recon  starts", RED_DURATIONS["recon"])
+    recon = _run_recon(args.target, mock=args.mock)
+    (out_dir / "recon.json").write_text(json.dumps(recon, indent=2, ensure_ascii=False), encoding="utf-8")
+    event("red", f"red-recon  → {len(recon.get('open_ports', []))} open ports")
+
+    event("red", "red-vuln-scan  starts", RED_DURATIONS["vuln-scan"])
+    vuln = _run_vuln_scan(args.target, recon, mock=args.mock)
+    (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
+    event("red", f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
+
+    # blue log-anomaly → alert-triage (DETECTION) — issued before red impact
+    event("blue", "blue-log-anomaly  scanning canned attack log", BLUE_DURATIONS["log-anomaly"])
+    alerts = _blue_log_anomaly(mock=args.mock)
+    (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
+    event("blue", f"blue-log-anomaly  → {len(alerts)} raw alerts")
+
+    event("blue", "blue-alert-triage  classify + dedupe", BLUE_DURATIONS["alert-triage"])
+    triaged = _blue_alert_triage(alerts)
+    (out_dir / "triage-queue.jsonl").write_text("\n".join(json.dumps(t) for t in triaged), encoding="utf-8")
+    event("blue", f"blue-alert-triage  → {len(triaged)} triaged groups")  # ← defender detects
+
+    # red exploit-suggest (IMPACT) — issued after detection
+    event("red", "red-exploit-suggest  composing prose", RED_DURATIONS["exploit-suggest"])
+    suggestions = _run_exploit_suggest(vuln, mock=args.mock, use_llm=args.use_llm)
+    (out_dir / "exploit-suggestions.md").write_text(suggestions, encoding="utf-8")
+    event("red", "red-exploit-suggest  done")  # ← attacker reaches actionable impact
+
+    # blue threat-correlate
+    event("blue", "blue-threat-correlate  reconstruct kill chain", BLUE_DURATIONS["threat-correlate"])
+    correlation = _blue_threat_correlate(triaged)
+    (out_dir / "kill-chains.jsonl").write_text("\n".join(json.dumps(c) for c in correlation), encoding="utf-8")
+    event("blue", f"blue-threat-correlate  → {len(correlation)} actor(s)")
+
+    # report-composition steps (timed), then compose with the full timeline
+    event("red", "red-pentest-report  composing markdown", RED_DURATIONS["pentest-report"])
+    event("blue", "blue-incident-report  composing markdown", BLUE_DURATIONS["incident-report"])
+
+    end_t = max(clock.now("red"), clock.now("blue"))
+    print(f"  [t+{end_t:5.1f}s] done")
+    timeline.append((end_t, "sys", "done"))
+
+    pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline, mock=args.mock)
+    (out_dir / "pentest-report.md").write_text(pentest_md, encoding="utf-8")
+    incident_md = _compose_incident_report(triaged, correlation, timeline, mock=args.mock)
+    (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
+
+    return timeline, pentest_md, incident_md
 
 
 # ─── Red pipeline implementations ────────────────────────────────────────
@@ -124,13 +195,34 @@ def _run_recon(target: str, mock: bool) -> dict[str, Any]:
     return nmap_runner.run(target)
 
 
-def _run_vuln_scan(target: str, recon: dict[str, Any], mock: bool) -> dict[str, Any]:
-    _ = recon  # vuln-scan reads recon ports in live mode (see tools/nuclei_runner.py)
+def _http_targets(target: str, recon: dict[str, Any]) -> list[str]:
+    """Derive HTTP(S) URLs to scan from recon's open ports (fallback: http://<target>)."""
+    urls: list[str] = []
+    for p in recon.get("open_ports", []):
+        svc = (p.get("service") or "").lower()
+        port = p.get("port")
+        if "http" in svc or port in (80, 443, 3000, 8080, 8443):
+            scheme = "https" if ("https" in svc or port in (443, 8443)) else "http"
+            urls.append(f"{scheme}://{target}:{port}")
+    return urls or [f"http://{target}"]
+
+
+def _run_vuln_scan(
+    target: str, recon: dict[str, Any], mock: bool, nuclei_run=None,
+) -> dict[str, Any]:
     if mock:
         return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text(encoding="utf-8"))
-    # Live mode would call nuclei_runner.run(...) for each open HTTP port from
-    # the recon JSON. Skipped in this minimal demo path; see tools/nuclei_runner.py.
-    return {"target": target, "findings": []}
+    # Live mode: run nuclei against each HTTP endpoint found in recon and
+    # aggregate. The runner self-gates to in-lab hosts and returns an {"error":
+    # ...} dict (no findings) when nuclei/docker is unavailable, so a missing lab
+    # degrades to empty findings rather than crashing. `nuclei_run` is injectable
+    # for tests.
+    nuclei_run = nuclei_run or nuclei_runner.run
+    findings: list[dict[str, Any]] = []
+    for url in _http_targets(target, recon):
+        result = nuclei_run(url)
+        findings.extend(result.get("findings", []))
+    return {"target": target, "findings": findings}
 
 
 def _run_exploit_suggest(vuln: dict[str, Any], mock: bool, use_llm: bool) -> str:
@@ -250,7 +342,8 @@ def _compose_pentest_report(
     recon: dict[str, Any],
     vuln: dict[str, Any],
     suggestions: str,
-    timeline: list[tuple[str, str]],
+    timeline: list[tuple[float, str, str]],
+    mock: bool = False,
 ) -> str:
     findings = vuln.get("findings", [])
     by_sev = {s: sum(1 for f in findings if f.get("severity") == s)
@@ -291,13 +384,20 @@ Open ports:
 ## Timeline
 
 {_render_timeline(timeline)}
+{_timing_note(mock)}
 """
+
+
+def _timing_note(mock: bool) -> str:
+    return ("\n_Timeline timing is **simulated** in mock mode (representative SOC "
+            "durations); live mode uses real wall-clock._\n") if mock else ""
 
 
 def _compose_incident_report(
     triaged: list[dict[str, Any]],
     correlation: list[dict[str, Any]],
-    timeline: list[tuple[str, str]],
+    timeline: list[tuple[float, str, str]],
+    mock: bool = False,
 ) -> str:
     p1 = sum(1 for t in triaged if t["priority"] == "P1")
     p2 = sum(1 for t in triaged if t["priority"] == "P2")
@@ -322,10 +422,24 @@ attacker container by design.
 
 {_render_triage(triaged)}
 
-## MTTD
+## MTTD (mean time to detect)
 
-First probe → first triaged alert in **{_mttd_seconds(timeline):.1f} seconds**.
+{_render_mttd(timeline)}
+{_timing_note(mock)}
 """
+
+
+def _render_mttd(timeline: list[tuple[float, str, str]]) -> str:
+    m = _metrics(timeline)
+    verdict = (f"defender detected **{m['detect_margin']:.0f}s before** the attacker "
+               "reached impact" if m["detect_margin"] >= 0 else
+               f"attacker reached impact **{-m['detect_margin']:.0f}s before** detection")
+    return (
+        f"- Attacker first action: **t+{m['first_action']:.0f}s**\n"
+        f"- Defender first triaged alert (detection): **t+{m['first_detect']:.0f}s**\n"
+        f"- Attacker reached impact: **t+{m['time_to_impact']:.0f}s**\n"
+        f"- **MTTD = {m['mttd']:.0f}s** — {verdict}."
+    )
 
 
 # ─── Renderers ───────────────────────────────────────────────────────────
@@ -340,10 +454,10 @@ def _render_ports(recon: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _render_timeline(tl: list[tuple[str, str]]) -> str:
-    lines = ["| t (s) | Event |", "|---|---|"]
-    for t, label in tl:
-        lines.append(f"| {t} | {label} |")
+def _render_timeline(tl: list[tuple[float, str, str]]) -> str:
+    lines = ["| t (s) | Side | Event |", "|---|---|---|"]
+    for t, side, label in sorted(tl, key=lambda e: e[0]):
+        lines.append(f"| {t:.1f} | {side} | {label} |")
     return "\n".join(lines)
 
 
@@ -369,17 +483,40 @@ def _render_triage(triaged: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _total_seconds(tl: list[tuple[str, str]]) -> float:
-    return float(tl[-1][0]) if tl else 0.0
+def _total_seconds(tl: list[tuple[float, str, str]]) -> float:
+    return max((t for t, _, _ in tl), default=0.0)
 
 
-def _mttd_seconds(tl: list[tuple[str, str]]) -> float:
-    """First red event → first blue triaged alert."""
-    first_red = next((float(t) for t, lbl in tl if "red-" in lbl and "starts" in lbl), 0.0)
-    first_blue_triage = next(
-        (float(t) for t, lbl in tl if "alert-triage" in lbl and "→" in lbl), 0.0
+def _metrics(tl: list[tuple[float, str, str]]) -> dict[str, float]:
+    """Honest red/blue timing metrics from the concurrent timeline.
+
+    - first_action:   attacker's first move (earliest red event)
+    - first_detect:   defender's first triaged alert
+    - time_to_impact: attacker reaches an actionable exploit (impact)
+    - mttd:           first_detect - first_action
+    - detect_margin:  time_to_impact - first_detect (positive = detected before impact)
+    """
+    red_times = [t for t, side, _ in tl if side == "red"]
+    first_action = min(red_times) if red_times else 0.0
+    first_detect = next((t for t, _, lbl in tl if "alert-triage" in lbl and "→" in lbl), 0.0)
+    time_to_impact = next(
+        (t for t, _, lbl in tl if "exploit-suggest" in lbl and "done" in lbl), 0.0
     )
-    return max(0.0, first_blue_triage - first_red)
+    detect_margin = time_to_impact - first_detect
+    return {
+        "first_action": first_action,
+        "first_detect": first_detect,
+        "time_to_impact": time_to_impact,
+        "mttd": max(0.0, first_detect - first_action),
+        # Honest, NOT clamped: negative means the attacker reached impact before
+        # the defender detected (attacker win). Live mode can legitimately hit this.
+        "detect_margin": detect_margin,
+        "outcome": "defender" if detect_margin >= 0 else "attacker",
+    }
+
+
+def _mttd_seconds(tl: list[tuple[float, str, str]]) -> float:
+    return _metrics(tl)["mttd"]
 
 
 if __name__ == "__main__":

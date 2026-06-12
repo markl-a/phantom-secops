@@ -34,8 +34,11 @@ system. See [ETHICS.md](ETHICS.md).
 
 ## Pillar 1 — SOC concept demo (red/blue lab)
 
-Two sets of phantom-mesh agents run in parallel against an intentionally vulnerable
-target (OWASP Juice Shop, DVWA, Metasploitable) in a Docker lab:
+Two agent pipelines — red (attack) and blue (defense) — run against an intentionally
+vulnerable target (OWASP Juice Shop, DVWA, Metasploitable) in a Docker lab. Today they're
+driven by a deterministic Python orchestrator (`run_kill_chain.py`); the same tools are
+also exposed as MCP servers, so driving the pipeline from phantom-mesh agent loops is the
+next milestone (the endpoint tool in Pillar 2 already runs through the agent).
 
 ```
 RED TEAM (attack simulation)              BLUE TEAM (defensive ops)
@@ -53,12 +56,21 @@ Pentest Report ─── markdown out           Incident Report ── exec summ
 ```
 
 The interesting part is the **side-by-side comparison**: attacker time-to-impact vs.
-defender time-to-detect — i.e. **MTTD**.
+defender time-to-detect — i.e. **MTTD**. In the mock demo (simulated, representative
+SOC timing) the defender triages the activity at **t+15s** while the attacker only
+reaches impact at **t+50s** — **MTTD 15s, detected 35s before impact**.
 
 ```bash
 make demo-mock      # full red/blue pipeline on canned data, <1s, no docker/keys
 make lab-up && make demo && make lab-down   # live, against the docker lab
 ```
+
+> Honesty note: mock timing is **simulated** (clearly labelled in the output). Live mode:
+> nmap recon and the nuclei vuln-scan are both wired (nuclei self-installs in the lab
+> container on first run), but the live path hasn't been verified end-to-end here — it needs
+> the docker lab up. The diagram's *dnsrecon / subfinder / nikto* are conceptual/planned (no
+> runners yet; nikto is installed in the lab image but not invoked). The mock demo tells the
+> full story; live is the hardening milestone.
 
 ---
 
@@ -123,6 +135,8 @@ key engineering decisions: [docs/DECISIONS.md](docs/DECISIONS.md).
   — all via injected runners, no real scanning in tests.
 - `make demo-mock` → red/blue pipeline on canned data.
 - `.\checkup.ps1` → live endpoint check + AI report on Windows.
+
+Step-by-step walkthrough for both demos: [docs/DEMO.md](docs/DEMO.md).
 
 ---
 
