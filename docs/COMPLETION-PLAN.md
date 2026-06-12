@@ -39,3 +39,10 @@ Recommended order: **1 → 4 → 2 → 3 → 5**. Minimum viable "done" = 1 + 4 
 
 - **Phase 0** — started: launched parallel gap-audit workflow (run map of kill-chain timeline/MTTD,
   the 8 agents + render script, live/docker path, claims-vs-reality).
+- **Phase 1 — DONE.** Made MTTD real. Root cause: `event()` stamped wall-clock, so mock steps
+  (≈0ms) all landed at t+0.0s → MTTD 0.0s, and red/blue ran sequentially. Fix: a two-clock model
+  (`Clock`) with simulated per-step durations (`RED_DURATIONS`/`BLUE_DURATIONS`) on concurrent
+  red/blue clocks; honest `_metrics()` (first_action, first_detect, time_to_impact, mttd,
+  detect_margin); timeline now interleaved + sorted; reports show the comparison, labelled
+  "simulated" in mock mode. Result: **MTTD 15s, detected 35s before impact**. 6 new tests,
+  full suite 102 passing.

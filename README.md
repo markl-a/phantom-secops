@@ -53,7 +53,9 @@ Pentest Report ─── markdown out           Incident Report ── exec summ
 ```
 
 The interesting part is the **side-by-side comparison**: attacker time-to-impact vs.
-defender time-to-detect — i.e. **MTTD**.
+defender time-to-detect — i.e. **MTTD**. In the mock demo (simulated, representative
+SOC timing) the defender triages the activity at **t+15s** while the attacker only
+reaches impact at **t+50s** — **MTTD 15s, detected 35s before impact**.
 
 ```bash
 make demo-mock      # full red/blue pipeline on canned data, <1s, no docker/keys
