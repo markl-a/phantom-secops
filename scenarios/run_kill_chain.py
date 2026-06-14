@@ -356,9 +356,9 @@ def _compose_pentest_report(
 
 ## Executive Summary
 
-A multi-agent pipeline executed a full kill-chain in {_total_seconds(timeline):.1f}
-seconds. The recon agent identified {len(recon.get('open_ports', []))} open service(s).
-The vuln-scan agent matched {len(findings)} findings ({by_sev.get('high', 0)} high,
+A red/blue kill-chain pipeline executed in {_total_seconds(timeline):.1f}
+seconds. The recon step identified {len(recon.get('open_ports', []))} open service(s).
+The vuln-scan step matched {len(findings)} findings ({by_sev.get('high', 0)} high,
 {by_sev.get('medium', 0)} medium, {by_sev.get('low', 0)} low). No exploitation was
 performed.
 

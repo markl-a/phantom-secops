@@ -1,108 +1,130 @@
 # phantom-secops
 
-> A security-operations project built on my own multi-agent runtime,
-> [phantom-mesh](https://github.com/markl-a/phantom-mesh). It does **two** things:
+> A local-first **endpoint-security agent**: a read-only toolchain that checks
+> *this* machine — host posture, dependency CVEs, host intrusion signals — and
+> uses one LLM agent to turn the raw findings into a single prioritised,
+> plain-language action list. Built to run on
+> [phantom-mesh](https://github.com/markl-a/phantom-mesh), my agent runtime.
 >
-> 1. **A SOC-concept demo** — red and blue team agents run in parallel against an
->    isolated vulnerable lab and produce a side-by-side **mean-time-to-detect** comparison.
-> 2. **A real local-first endpoint self-check** — read-only host posture, dependency
->    CVEs, and host intrusion detection on *this* machine, unified by an LLM agent into
->    one prioritised, plain-language action list.
+> It also ships a smaller **SOC concept demo** (a red/blue kill-chain
+> *simulation*) — see [Pillar 2](#pillar-2--soc-concept-demo-redblue-kill-chain-simulation).
 
-[![Powered by phantom-mesh](https://img.shields.io/badge/powered%20by-phantom--mesh-purple)](https://github.com/markl-a/phantom-mesh)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-114%20passing-brightgreen.svg)](tests/)
 
 ---
 
-## What this demonstrates
+## What this is (and isn't)
 
-Both pillars run on the same idea — **"don't build the engine, build the brain":** wrap
-mature, battle-tested security tools and let LLM agents orchestrate, correlate, and
-explain. The differentiation is the agent layer, not a re-implemented scanner.
+The idea behind both parts is **"don't build the engine, build the brain":** wrap
+mature, battle-tested security tools (Trivy, a Sigma matcher, native OS queries)
+and let an LLM agent orchestrate, correlate, and explain. The differentiation is
+the agent + MCP-tool layer, not a re-implemented scanner.
 
-| Pillar | What it shows |
-|---|---|
-| **SOC concept demo** (red/blue lab) | I understand how SOC work decomposes — recon→scan→exploit-suggest on one side, log-anomaly→triage→correlate on the other — and can quantify it with MTTD, the metric real SOCs care about. |
-| **Endpoint self-check tool** | I can wrap real engines (Trivy, a Sigma matcher, native OS queries), build an MCP plugin suite with a capability model, drive it from an agent, and ship something I actually run daily. |
-
-Neither claims production SOC automation, 0-day discovery, or third-party scanning.
-Everything is lab-only or self-only and **read-only** — it advises, it never changes your
-system. See [ETHICS.md](ETHICS.md).
+This does **not** claim production SOC automation, multi-agent red-vs-blue
+combat, 0-day discovery, or third-party scanning. Everything is **self-only or
+lab-only** and **read-only** — it advises, it never changes your system. See
+[ETHICS.md](ETHICS.md).
 
 ---
 
-## Pillar 1 — SOC concept demo (red/blue lab)
+## Pillar 1 — Local-first endpoint self-check (the real, daily-driver part)
 
-Two agent pipelines — red (attack) and blue (defense) — run against an intentionally
-vulnerable target (OWASP Juice Shop, DVWA, Metasploitable) in a Docker lab. Today they're
-driven by a deterministic Python orchestrator (`run_kill_chain.py`); the same tools are
-also exposed as MCP servers, so driving the pipeline from phantom-mesh agent loops is the
-next milestone (the endpoint tool in Pillar 2 already runs through the agent).
+A read-only toolchain that checks *this* machine and uses **one LLM agent**
+(running on phantom-mesh, with provider fallback) to fold the raw findings into a
+single prioritised report. Data never leaves the machine.
+
+Six tools, each exposed as its own MCP server (one tool per server, stdio
+JSON-RPC):
+
+| Capability | Engine | MCP server / tool |
+|---|---|---|
+| Host security posture (firewall, disk encryption, AV, UAC, ports, SIP) | native OS queries | `secops_host_audit` / `audit_host` |
+| Dependency / OS-package CVEs (prioritised, fixable-first) | **Trivy** | `secops_vuln` / `scan_vulns` |
+| Host intrusion signals (encoded PowerShell, cradles, AMSI bypass…) | a small **Sigma** engine over Windows event logs | `secops_ids` / `scan_intrusions` |
+| Config self-audit (phantom-mesh `agents.toml` hygiene) | native | `secops_self_audit` / `audit_local_config` |
+| Lab recon (also used by Pillar 2) | nmap | `secops_recon` / `scan_target` |
+| Log-anomaly pattern match (also used by Pillar 2) | pattern matcher | `secops_log` / `scan_log` |
+
+```powershell
+.\checkup.ps1                              # one command: tests + every tool + AI report
+.\checkup.ps1 -Path D:\Projects\my-app     # scan a specific project for CVEs
+.\checkup.ps1 -SkipTests -SkipAgent        # raw tool output only, no LLM call
+```
+
+A Windows scheduled task can run it daily and log to `reports/checkup/`. On the
+author's machine a run surfaced **864 fixable CVEs** in a sibling project plus an
+AV real-time-protection gap; the agent then produced exact upgrade versions and a
+prioritised fix order.
+
+> The `secops_recon` / `secops_log` tools are shared with Pillar 2 — that's why
+> the demo and the endpoint check can use the same engines. The endpoint tools
+> (`host_audit`, `vuln`, `ids`, `self_audit`) are the ones that actually run on
+> *this* machine through the agent.
+
+### The capability model (`x-phantom`)
+
+Each MCP tool tags itself with `x-phantom.{classification, capabilities, read_only}`
+(e.g. `blue` / `read.host_posture` / `target.self_only`). This is the hook for a
+per-agent policy enforcer in phantom-mesh — so a blue-team agent could be denied
+red-team tools — and it's how every tool advertises that it is read-only and
+self-scoped. The metadata is emitted and unit-tested here; the phantom-mesh-side
+enforcer that consumes it is not part of this repo.
+
+---
+
+## Pillar 2 — SOC concept demo (red/blue kill-chain *simulation*)
+
+A side-by-side red (attack) and blue (defense) pipeline runs against an
+intentionally vulnerable target (OWASP Juice Shop, DVWA, Metasploitable) in a
+Docker lab, and emits a **mean-time-to-detect (MTTD)** comparison.
+
+**This is a single deterministic Python orchestrator** (`scenarios/run_kill_chain.py`),
+**not** a multi-agent system. The `agents/*.toml` files describe agent *roles* and
+the tools are exposed over MCP, so driving the pipeline from real phantom-mesh
+agent loops is a future milestone — but today the pipeline is plain Python
+functions in one process, with templated (not LLM-written) reports.
 
 ```
-RED TEAM (attack simulation)              BLUE TEAM (defensive ops)
+RED (attack simulation)                   BLUE (defensive ops)
 ─────────────────────────────             ─────────────────────────────
-Recon ── Nmap, dnsrecon, subfinder        Alert Triage ── classify SIEM
-   │                                          │             alerts, dedupe
+Recon ── nmap                             Log Anomaly ── pattern match
+   │                                          │            over a canned log
    ▼                                          ▼
-Vuln Scan ── Nuclei, Nikto                Log Anomaly ── baseline +
-   │                                          │            outlier detect
+Vuln Scan ── nuclei (live-mode only)      Alert Triage ── classify + dedupe
+   │                                          │
    ▼                                          ▼
-Exploit Suggest ── CVE matcher,           Threat Correlate ── kill chain
-   │                  POC text only           │                reconstruction
+Exploit Suggest ── templated prose        Threat Correlate ── kill-chain
+   │                  (no runnable POC)        │                reconstruction
    ▼                                          ▼
-Pentest Report ─── markdown out           Incident Report ── exec summary
+Pentest Report ─── markdown out           Incident Report ── markdown out
 ```
 
-The interesting part is the **side-by-side comparison**: attacker time-to-impact vs.
-defender time-to-detect — i.e. **MTTD**. In the mock demo (simulated, representative
-SOC timing) the defender triages the activity at **t+15s** while the attacker only
-reaches impact at **t+50s** — **MTTD 15s, detected 35s before impact**.
+The interesting part is the **side-by-side comparison**: attacker time-to-impact
+vs. defender time-to-detect. In mock mode (**simulated, illustrative SOC timing —
+clearly labelled in the output, not measured benchmarks**) the defender triages
+at **t+15s** while the attacker reaches impact at **t+50s** → **MTTD 15s,
+detected 35s before impact**. The *mechanism* (two concurrent clocks, milestone
+extraction, the MTTD comparison) is real and tested; the per-step durations are
+scenario inputs, not real detection latencies.
 
 ```bash
 make demo-mock      # full red/blue pipeline on canned data, <1s, no docker/keys
 make lab-up && make demo && make lab-down   # live, against the docker lab
 ```
 
-> Honesty note: mock timing is **simulated** (clearly labelled in the output). Live mode:
-> nmap recon and the nuclei vuln-scan are both wired (nuclei self-installs in the lab
-> container on first run), but the live path hasn't been verified end-to-end here — it needs
-> the docker lab up. The diagram's *dnsrecon / subfinder / nikto* are conceptual/planned (no
-> runners yet; nikto is installed in the lab image but not invoked). The mock demo tells the
-> full story; live is the hardening milestone.
-
----
-
-## Pillar 2 — Local-first endpoint self-check
-
-A read-only, local toolchain that checks *this* machine and uses an LLM agent to turn
-raw findings into one prioritised report. Data never leaves the machine.
-
-| Capability | Engine | MCP tool |
-|---|---|---|
-| Host security posture (firewall, disk encryption, AV, UAC, ports, SIP) | native OS queries | `secops_host_audit` |
-| Dependency / OS-package CVEs (prioritised, fixable-first) | **Trivy** | `secops_vuln` |
-| Host intrusion detection (encoded PowerShell, cradles, AMSI bypass…) | a small **Sigma** engine over Windows event logs | `secops_ids` |
-| Config self-audit (phantom-mesh `agents.toml` hygiene) | native | `secops_self_audit` |
-| Lab recon / log-anomaly (Pillar 1 tools, also exposed) | nmap / pattern matcher | `secops_recon`, `secops_log` |
-
-```powershell
-.\checkup.ps1                              # one command: tests + every tool + AI report
-.\checkup.ps1 -Path D:\Projects\my-app     # scan a specific project for CVEs
-```
-
-A Windows scheduled task can run it daily and log to `reports/checkup/`. A real run on
-the author's machine surfaced **864 fixable CVEs** in a sibling project and an AV
-real-time-protection gap, then the agent produced exact upgrade versions and a
-prioritised fix order.
-
-### The capability model (`x-phantom`)
-
-Each MCP tool tags itself with `x-phantom.{classification, capabilities, read_only}`
-(e.g. `blue` / `read.host_posture` / `target.self_only`). This is the hook for a
-per-agent policy enforcer in phantom-mesh — so a blue-team agent can be denied red-team
-tools — and it's how every tool here advertises that it is read-only and self-scoped.
+> **Honesty notes.**
+> - The reports are **templated**, not LLM-written. The `--use-llm` flag exists
+>   on `run_kill_chain.py` but is a **no-op stub** — it's parsed and threaded
+>   through the signature for a future LLM-driven report writer, and changes
+>   nothing today (`_run_exploit_suggest` ignores it). The exploit-suggester is
+>   deterministic prose keyed off scan findings, so it structurally cannot invent
+>   a CVE.
+> - **Mock mode is the path that's verified end-to-end here.** Live mode wires
+>   nmap recon and a nuclei vuln-scan (nuclei self-installs in the lab container
+>   on first run), but the live path has not been verified end-to-end in this
+>   repo — it needs the docker lab up. The diagram's *dnsrecon / subfinder /
+>   nikto* are conceptual (no runners; nikto is in the lab image but not invoked).
 
 ---
 
@@ -113,27 +135,28 @@ tools — and it's how every tool here advertises that it is read-only and self-
         │  LLM agent (phantom-mesh runtime)             │
         │  provider fallback · tool-calling loop        │
         └───────────────┬───────────────────────────────┘
-                        │  MCP (stdio JSON-RPC) + x-phantom policy
+                        │  MCP (stdio JSON-RPC) + x-phantom policy metadata
    ┌────────────────────┼────────────────────────────────────────┐
    ▼            ▼        ▼          ▼            ▼            ▼
 host_audit  vuln(Trivy) ids(Sigma) self_audit  recon(nmap)  log
-   └─────────── each: tools/<x>.py (pure, TDD'd) + an MCP server wrapper ───┘
+   └─── each: tools/<x>.py (pure, injectable runner) + one MCP server wrapper ───┘
 ```
 
-Every tool is a pure Python module with an **injectable command runner**, so the logic
-is unit-tested with canned output and never touches the real OS in tests. The MCP server
-is a thin wrapper that adds the `x-phantom` metadata. Full design notes:
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
+Every tool is a pure Python module with an **injectable command runner**, so the
+logic is unit-tested with canned output and never touches the real OS in tests.
+Each MCP server is a thin wrapper that adds the `x-phantom` metadata. Full design
+notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 key engineering decisions: [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ---
 
 ## Verification
 
-- `python -m pytest -q` → all green (run it; the suite grows as features land). Covers
-  matchers, parsers, prioritisation, the Sigma engine, and elevation/encoding edge cases
-  — all via injected runners, no real scanning in tests.
-- `make demo-mock` → red/blue pipeline on canned data.
+- `python -m pytest -q` → **114 passing** here. Covers matchers, parsers,
+  prioritisation, the Sigma engine, the MTTD timing model, the MCP server
+  wrappers, and elevation/encoding edge cases — all via injected runners, no real
+  scanning in tests.
+- `make demo-mock` → red/blue pipeline on canned data, deterministic, <1s.
 - `.\checkup.ps1` → live endpoint check + AI report on Windows.
 
 Step-by-step walkthrough for both demos: [docs/DEMO.md](docs/DEMO.md).
@@ -145,20 +168,22 @@ Step-by-step walkthrough for both demos: [docs/DEMO.md](docs/DEMO.md).
 Short version (full writeup in [docs/DECISIONS.md](docs/DECISIONS.md)):
 
 - **Injectable runners everywhere** so OS-touching tools are still unit-testable.
-- **Low false-positives over coverage** — tuned out an IDS rule that fired on a *signed
-  Microsoft module manifest*; deliberately did **not** bolt on 300+ CIS checks that would
-  be alert-fatigue noise for a personal machine.
-- **Honest degradation** — a check that needs admin returns `unknown` with a "re-run as
-  Administrator" hint, never a false `fail`.
-- **Read-only by design** — suggest, never auto-remediate (keeps the trust/liability bar low).
+- **Low false-positives over coverage** — tuned out an IDS rule that fired on a
+  *signed Microsoft module manifest*; deliberately did **not** bolt on 300+ CIS
+  checks that would be alert-fatigue noise for a personal machine.
+- **Honest degradation** — a check that needs admin returns `unknown` with a
+  "re-run as Administrator" hint, never a false `fail`.
+- **Read-only by design** — suggest, never auto-remediate (keeps the
+  trust/liability bar low).
 
 ---
 
 ## Ethics & legality
 
-**Read [ETHICS.md](ETHICS.md) first.** All lab targets are intentionally-vulnerable apps
-maintained for security education; all tools are legitimate public research tools; the
-exploit-suggester emits prose only; the endpoint tools are read-only and self-only.
+**Read [ETHICS.md](ETHICS.md) first.** All lab targets are intentionally-vulnerable
+apps maintained for security education; all tools are legitimate public research
+tools; the exploit-suggester emits prose only; the endpoint tools are read-only
+and self-only.
 
 ## Related
 
