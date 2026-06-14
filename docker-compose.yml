@@ -54,7 +54,7 @@ services:
       - MYSQL_USER=dvwa
       - MYSQL_PASSWORD=p@ssw0rd
 
-  # The "attacker" container that the phantom red-team agents shell into
+  # The "attacker" container that the red-team pipeline steps shell into
   # for Nmap / Nuclei / Nikto runs. Kali base because it ships the tooling.
   attacker:
     image: kalilinux/kali-rolling:latest
@@ -68,11 +68,11 @@ services:
         apt-get update -qq && \
         apt-get install -y -qq nmap nikto dnsutils curl wget && \
         sleep infinity
-    # Use docker exec to run agent tools inside this container.
+    # Use docker exec to run pipeline tools inside this container.
     # Keeps attack tooling off your host.
 
-  # Lightweight log collector for blue-team agents to ingest from.
-  # Tails container logs into a file the log-anomaly agent can read.
+  # Lightweight log collector for the blue-team pipeline to ingest from.
+  # Tails container logs into a file the log-anomaly step can read.
   log-collector:
     image: alpine:3.19
     container_name: secops-log-collector

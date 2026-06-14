@@ -2,7 +2,7 @@
 #
 # Discovers attack surface for a target running in the secops-lab docker network.
 # Outputs structured findings (open ports, service banners, subdomains, headers)
-# to be consumed by the vuln-scan agent.
+# to be consumed by the vuln-scan step.
 
 [agent]
 name        = "red-recon"

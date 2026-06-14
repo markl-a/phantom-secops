@@ -1,7 +1,7 @@
-"""nuclei tool wrapper for the red-vuln-scan agent.
+"""nuclei tool wrapper for the red-vuln-scan step.
 
 Runs nuclei inside the secops-attacker container with the public template
-catalogue. Returns matched template IDs + severity for the agent to reason over.
+catalogue. Returns matched template IDs + severity for the pipeline to reason over.
 """
 
 from __future__ import annotations

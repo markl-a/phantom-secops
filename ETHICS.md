@@ -1,14 +1,14 @@
 # Ethics, legality, and scope
 
-This repo demonstrates multi-agent security automation. Anyone using or evaluating
+This repo demonstrates LLM-driven security automation. Anyone using or evaluating
 it should understand exactly what it does and does not do.
 
 ## What this repo is
 
 - A research playground for orchestrating security tooling via the phantom-mesh
-  multi-agent runtime.
-- A demonstration of how XDR-style cross-source correlation maps to a multi-agent
-  architecture.
+  agent runtime.
+- A demonstration of how XDR-style cross-source correlation maps onto a
+  red/blue kill-chain pipeline.
 - A teaching artifact for talking about red/blue team workflows in interviews,
   technical discussions, and educational settings.
 
@@ -46,7 +46,7 @@ ports — there is no implicit exposure.
 
 ## Tools
 
-All tools used by the agents are publicly available, widely deployed in
+All tools used by the pipeline are publicly available, widely deployed in
 defensive security research:
 
 - **Nmap** — network scanner, used by every blue team in the world for asset
@@ -59,9 +59,9 @@ defensive security research:
 None of these are "hacking tools" — they are reconnaissance and assessment tools
 used by every modern security team.
 
-## Exploit Suggester scope
+## Exploit Suggest scope
 
-The exploit-suggester agent matches CVE identifiers against scan output and
+The exploit-suggest step matches CVE identifiers against scan output and
 generates a **prose description** of how the vulnerability would be exploited
 in principle. It does not:
 
@@ -70,8 +70,8 @@ in principle. It does not:
 - Chain vulnerabilities into attack paths automatically.
 - Exfiltrate data.
 
-If a CVE has public POC code (e.g., on Exploit-DB), the agent can include a
-**reference** to that resource — but the agent itself does not execute the POC,
+If a CVE has public POC code (e.g., on Exploit-DB), the step can include a
+**reference** to that resource — but the step itself does not execute the POC,
 and the POC is not bundled in this repo.
 
 This is the same scope a pentester's written report would have.

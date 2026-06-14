@@ -13,8 +13,9 @@
 └─────────────┬──────────────────────────────────┬───────────────────┘
               │                                  │
         ┌─────▼────────┐                  ┌──────▼───────┐
-        │  RED agents  │                  │  BLUE agents │
-        │  (TOML-cfgd) │                  │  (TOML-cfgd) │
+        │  RED steps   │                  │  BLUE steps  │
+        │ (determinist.│                  │ (determinist.│
+        │  pipeline)   │                  │  pipeline)   │
         └─────┬────────┘                  └──────┬───────┘
               │                                  │
         ┌─────▼────────┐                  ┌──────▼───────┐
@@ -40,34 +41,41 @@
 
 ## Why phantom-mesh
 
+The project is built on phantom-mesh, the agent runtime. Note the split: the
+**endpoint self-check (Pillar 1)** runs as a real LLM agent on this runtime,
+while the **red/blue kill-chain (Pillar 2)** is today a deterministic Python
+orchestrator — driving it from phantom-mesh agent loops is a future milestone.
 The runtime gives us:
 
-- **Tool-calling loop** — agents are written as TOML configs + Python tool
-  wrappers. No bespoke agent harness to maintain per project.
-- **Provider fallback** — if Groq rate-limits during a long scenario, the run
-  silently moves to Anthropic / OpenRouter / a local MLX model. Useful when a
-  demo needs to be reliable in a live setting.
-- **Cost tracking** — each agent run reports tokens / cost, which lets us
-  compare "what does a full kill-chain analysis cost in API calls" honestly.
-- **Inter-agent context** — recon JSON written to `reports/` is picked up by
-  vuln-scan via a `file_read` tool call, not via a bespoke message bus. Simple,
-  observable, durable.
+- **Tool-calling loop** — tools are exposed as MCP servers + Python wrappers,
+  consumed by the endpoint agent. No bespoke agent harness to maintain.
+- **Provider fallback** — if Groq rate-limits during a long run, the endpoint
+  agent silently moves to Anthropic / OpenRouter / a local MLX model. Useful
+  when a demo needs to be reliable in a live setting.
+- **Cost tracking** — an agent run reports tokens / cost, which lets us compare
+  "what does an analysis cost in API calls" honestly.
+- **File-based handoff** — in the kill-chain, recon JSON written to `reports/`
+  is picked up by the vuln-scan step via a plain file read, not a bespoke
+  message bus. Simple, observable, durable.
 
-## Why split into so many agents
+## Why split the kill-chain into phases
 
-Two reasons.
+Two reasons. (Honest framing: today these phases are functions in one
+deterministic process, not separate agents — the split is a design choice that
+maps onto the future LLM-agent-per-phase milestone.)
 
 **Domain reason.** Real SOCs split work across roles: T1 analyst (triage),
-T2 (correlation), incident commander (report). Modeling those roles as agents
-maps well to existing operational language. A pentest engagement also splits
-recon → scanning → exploitation → reporting, with different specialists per
-phase.
+T2 (correlation), incident commander (report). Modeling those roles as pipeline
+phases maps well to existing operational language. A pentest engagement also
+splits recon → scanning → exploitation → reporting, with different specialists
+per phase.
 
-**LLM reason.** Each phase has different tool access patterns and different
-cost/latency characteristics. Recon is I/O-heavy and benefits from a larger
-context window. Exploit-suggest is text-heavy and benefits from a smaller, faster
-model. Mixing them in one mega-agent causes prompt bloat and degraded reasoning
-at each step.
+**Future-LLM reason.** Each phase has different tool access patterns and
+different cost/latency characteristics. Recon is I/O-heavy and would benefit
+from a larger context window; exploit-suggest is text-heavy and would suit a
+smaller, faster model. Keeping phases separate now means that when they become
+real agent loops, each can be sized independently instead of bloating one
+mega-agent.
 
 ## Comparison to a monolithic LLM-driven scanner
 
@@ -78,17 +86,18 @@ report. We tried this in early prototypes. The failure modes were:
    — recon, scan, exploit suggestion, report — and ran out of context window.
 2. **Lost intermediate state.** When the agent retried after a tool failure, it
    re-did recon from scratch.
-3. **No defensive narrative.** A single attack-side agent had no defender's
+3. **No defensive narrative.** A single attack-side chain had no defender's
    perspective to compare against, which is the most interesting part of this
    demo.
 
-Splitting into role-specific agents with explicit handoff via the file system
-fixed all three.
+Splitting into discrete phases with explicit handoff via the file system fixed
+all three — and is why the kill-chain is structured as a deterministic pipeline
+of steps today.
 
-## Multi-source correlation = multi-agent
+## Multi-source correlation
 
 The blue side mirrors how XDR products work: multiple specialized analyzers
-each looking at one signal source, with a correlator agent that joins them.
+each looking at one signal source, with a correlation step that joins them.
 This isn't novel — it's the same pattern as Trend Vision One, Microsoft
 Defender XDR, Falcon NG-SIEM. The novelty here is making the pattern
 *observable* and *modifiable* via TOML configs, instead of buried inside a

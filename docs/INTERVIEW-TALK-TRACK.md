@@ -5,10 +5,11 @@ Trend Micro, CrowdStrike, Palo Alto, etc.
 
 ## Elevator pitch (30 seconds)
 
-> "I built a security-ops project on my own multi-agent runtime that does two
-> things. One: a red/blue **SOC concept demo** — attack and defense agents run
-> in parallel against an isolated lab and I quantify **mean-time-to-detect**,
-> the metric SOCs care about. Two: a real **local-first endpoint self-check** I
+> "I built a security-ops project on my own agent runtime that does two
+> things. One: a red/blue **SOC concept demo** — an attack and a defense
+> pipeline run side-by-side against an isolated lab and I quantify
+> **mean-time-to-detect**, the metric SOCs care about. Two: a real
+> **local-first endpoint self-check** I
 > actually run daily — read-only host posture, dependency CVEs via Trivy, and
 > host intrusion detection with a small Sigma engine, all unified by an LLM
 > agent into one prioritised, plain-language fix list, with the data never
@@ -35,23 +36,31 @@ applications maintained for security education (OWASP Juice Shop, DVWA,
 Metasploitable). All tools are widely deployed defensive research tools —
 Nmap and Nuclei are wired (Nikto is installed in the lab image but not yet
 invoked by the orchestrator). The lab runs on an isolated docker network with no
-host port exposure by default. The exploit-suggester agent only produces
+host port exposure by default. The exploit-suggest step only produces
 prose, not runnable code. See ETHICS.md for full scoping.
 
-### "What's the value over a single LLM agent that does it all?"
+### "Why split the kill-chain into separate phases instead of one big step?"
 
-Three things. **Context window** — splitting phases keeps each agent's prompt
-focused. **Cost/latency tuning** — smaller model for prose-heavy steps, larger
-for tool-heavy steps. **Operational mapping** — real SOCs and red teams already
-split work across roles, so the architecture mirrors how the work is done.
+(Honest framing: today the kill-chain is a single deterministic Python
+orchestrator, not separate agents — the phases are functions in one process.
+The phase split is a design choice that maps cleanly onto the *future*
+LLM-agent-per-phase milestone.) Three reasons it's structured this way.
+**Operational mapping** — real SOCs and red teams already split work across
+roles, so the pipeline mirrors how the work is done. **Inspectable handoffs** —
+each phase writes its artifact to disk, so you can see exactly what recon
+handed to vuln-scan. **Future cost/latency tuning** — when phases become real
+agent loops, you can size the model per phase (smaller for prose-heavy steps,
+larger for tool-heavy steps).
 
 ### "How does this differ from MSF / Cobalt Strike / Burp Suite Pro?"
 
 This isn't an offensive tool. It's an **orchestration layer** that makes
-existing tools cooperate via natural-language agents. The LLM doesn't write
-exploits — it routes between standard scanners, parses their output, and
-composes reports. Think "GitHub Actions for security workflows, but agents
-write the steps."
+existing tools cooperate. The kill-chain itself doesn't write exploits — it
+routes between standard scanners, parses their output, and composes templated
+reports as a deterministic pipeline. The LLM value lives in the endpoint
+pillar, where an agent folds raw tool output into one prioritised action list.
+Think "GitHub Actions for security workflows, with an AI layer on top of the
+findings."
 
 ### "Why phantom-mesh and not LangChain / AutoGen / CrewAI?"
 
@@ -64,7 +73,7 @@ For a security context, the single-binary delivery is genuinely useful —
 analysts can ship the runtime to an air-gapped lab without dragging in a
 Python ecosystem.
 
-### "What's the false-positive rate of the alert-triage agent?"
+### "What's the false-positive rate of the alert-triage step?"
 
 I haven't run it long enough to give a calibrated number. On the demo
 scenarios I have, it correctly promotes scanner activity to P2 within 15s of
@@ -74,9 +83,9 @@ claiming a real number.
 
 ### "How does this scale?"
 
-The agents are stateless between handoffs (state lives on the file system).
-You could run multiple lab instances on a single host, or shard across a
-cluster — phantom-mesh already supports distributed execution via its mesh
+The pipeline steps are stateless between handoffs (state lives on the file
+system). You could run multiple lab instances on a single host, or shard across
+a cluster — phantom-mesh already supports distributed execution via its mesh
 feature. I haven't tested that for security workloads yet.
 
 ### "Walk me through the kill-chain demo."
@@ -103,7 +112,7 @@ detect before impact, and by how much" question is exactly what a SOC measures.
 In priority order:
 
 1. Real alert dataset replay. Use a public CTF dataset (CTF-d archives, MISP
-   feeds) to validate the triage agent's calibration.
+   feeds) to validate the triage step's calibration.
 2. Containment actions. Right now the blue side observes and reports. Next
    step is enabling guarded response actions (block IP, isolate container)
    with human-in-the-loop approval.

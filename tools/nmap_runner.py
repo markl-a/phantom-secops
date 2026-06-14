@@ -1,7 +1,7 @@
-"""nmap tool wrapper for the red-recon agent.
+"""nmap tool wrapper for the red-recon step.
 
 Runs nmap inside the `secops-attacker` container so attack tooling stays off
-the host. Returns a parsed JSON dict the agent can reason over.
+the host. Returns a parsed JSON dict the pipeline can reason over.
 
 Usage (called by phantom-mesh tool dispatch):
     nmap_runner.run(target="juice-shop", ports="top-1000", scan_type="-sV")

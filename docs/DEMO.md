@@ -30,8 +30,8 @@ What to point out:
      breakdown.
    - `pentest-report.md` — recon, findings by severity, prose-only exploit suggestions.
 
-Talking point: *"The same multi-agent runtime drives both sides; the value is the
-side-by-side timing, which is exactly how a SOC measures itself."*
+Talking point: *"The same deterministic orchestrator drives both sides; the value
+is the side-by-side timing, which is exactly how a SOC measures itself."*
 
 ---
 

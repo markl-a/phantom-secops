@@ -1,7 +1,8 @@
 """Kill-chain orchestrator.
 
-Runs the red and blue agent pipelines against an in-lab target and emits a
-side-by-side report. Two modes:
+Runs the red and blue pipelines against an in-lab target and emits a
+side-by-side report. This is a single deterministic process — each phase is a
+step (a function), not a separate agent. Two modes:
 
   --mock   : use canned data from lab/mocks/. No docker, no API key. CI-safe.
             Useful for demos on a fresh machine or when offline.

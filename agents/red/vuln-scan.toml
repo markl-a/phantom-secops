@@ -22,7 +22,7 @@ description = "Read recon JSON from reports/."
 
 [[agent.tools]]
 name        = "file_write"
-description = "Persist vuln findings JSON for the exploit-suggester agent."
+description = "Persist vuln findings JSON for the exploit-suggest step."
 
 [agent.prompt]
 system = """
@@ -31,7 +31,7 @@ by the orchestrator, choose appropriate scanners for each open service, run
 them, and write a consolidated findings file.
 
 Hard rules:
-- Only scan hosts identified by the recon agent (already lab-confirmed).
+- Only scan hosts identified by the recon step (already lab-confirmed).
 - For HTTPS, accept self-signed certs (these are lab targets).
 - Throttle: do not run more than 2 scanners concurrently against the same target.
 - For each finding, record: cve_id (if any), title, severity, evidence, raw tool output snippet.

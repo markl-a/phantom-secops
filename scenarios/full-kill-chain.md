@@ -1,12 +1,13 @@
 # Scenario: Full kill chain vs. parallel defense
 
-This scenario runs the entire red-blue pipeline against OWASP Juice Shop in the
-isolated lab. Both teams' phantom-mesh agents run concurrently. At the end, the
-two reports are placed side-by-side and the timeline is annotated.
+This scenario runs the entire red/blue kill-chain pipeline against OWASP Juice
+Shop in the isolated lab. Both sides advance on two concurrent clocks in a
+single deterministic orchestrator. At the end, the two reports are placed
+side-by-side and the timeline is annotated.
 
 ## Goal
 
-Demonstrate end-to-end multi-agent security automation with measurable MTTD
+Demonstrate end-to-end security automation with measurable MTTD
 (mean time to detect) — a metric defenders care about.
 
 ## Targets
@@ -26,7 +27,8 @@ If any check fails, see `lab/README.md` for troubleshooting.
 
 ## Execution plan
 
-The orchestrator launches two parallel agent pipelines.
+The deterministic orchestrator advances two pipelines on concurrent clocks in a
+single process.
 
 ### Red pipeline (sequential)
 
@@ -62,8 +64,8 @@ Terminator (run after red pipeline completes, ~10s grace period):
 So the attacker reaches the "pentest report" milestone in ~60s, and the
 defender reaches the "incident report" milestone in roughly the same window.
 This is the measurement we want to surface: detection lag is small when the
-defender has multi-agent log analysis running concurrently — not because the
-defender is fast, but because the analysis pipeline is parallelized.
+defender has its log-analysis pipeline running concurrently — not because the
+defender is fast, but because the analysis steps advance alongside the attack.
 
 ## Side-by-side comparison
 
