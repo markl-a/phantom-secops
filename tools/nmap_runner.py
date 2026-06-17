@@ -38,6 +38,10 @@ def run(target: str, ports: str = "top-1000", scan_type: str = "-sV") -> dict[st
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return {"error": "nmap scan exceeded 120s timeout", "target": target}
+    except OSError as exc:
+        # docker binary missing / not on PATH (the offline case) — degrade to a
+        # structured error so callers keep running rather than crashing.
+        return {"error": f"could not launch docker: {exc}", "target": target}
 
     if result.returncode != 0:
         return {
