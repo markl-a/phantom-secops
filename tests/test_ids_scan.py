@@ -5,8 +5,12 @@ events/rules; the event reader uses an injected runner with canned JSON.
 
 from __future__ import annotations
 
+import time
+
 from tools.host_audit import CmdResult
-from tools.ids_scan import match_event, scan_events, read_events, BUNDLED_RULES
+from tools.ids_scan import (
+    match_event, scan_events, read_events, BUNDLED_RULES, _eval_condition,
+)
 
 
 def _det(selection, condition="selection", **extra):
@@ -98,6 +102,64 @@ def test_condition_all_of_wildcard():
         "condition": "all of selection_*",
     }
     assert match_event(det2, EVT) is False
+
+
+# ── condition evaluator safety (no eval, no arithmetic DoS, no injection) ──────
+
+def test_condition_evaluator_handles_boolean_grammar():
+    # The supported boolean grammar must still evaluate correctly.
+    assert _eval_condition("a and b", {"a": True, "b": True}) is True
+    assert _eval_condition("a and b", {"a": True, "b": False}) is False
+    assert _eval_condition("a or b", {"a": False, "b": True}) is True
+    assert _eval_condition("a and not b", {"a": True, "b": False}) is True
+    assert _eval_condition("not a", {"a": False}) is True
+    assert _eval_condition("(a or b) and not c",
+                           {"a": True, "b": False, "c": False}) is True
+
+
+def test_condition_unknown_identifier_is_false_not_error():
+    # An unmatched/undeclared block name evaluates to False, never raises.
+    assert _eval_condition("selection and missing", {"selection": True}) is False
+    assert _eval_condition("missing", {"selection": True}) is False
+
+
+def test_condition_rejects_arithmetic_dos():
+    # A crafted rule must NOT be able to make us evaluate a giant-int expression
+    # (the old eval() path computed 2**100000000). The non-boolean expression is
+    # rejected and returns False quickly, never hanging.
+    start = time.time()
+    assert _eval_condition("2 ** 100000000", {}) is False
+    assert _eval_condition("a ** b", {"a": 2, "b": 100000000}) is False
+    assert time.time() - start < 1.0
+
+
+def test_condition_rejects_attribute_and_call_injection():
+    # Sandbox-escape shapes that reached the old eval() must be rejected outright.
+    for cond in (
+        "().__class__.__bases__",
+        "__import__('os').system('echo pwned')",
+        "(9).__class__",
+        "[x for x in range(10)]",
+        "a if b else c",
+    ):
+        assert _eval_condition(cond, {"a": True, "b": True, "c": True}) is False
+
+
+def test_condition_rejects_deeply_nested_expression():
+    # A crafted condition with extreme nesting must not crash the engine with an
+    # uncaught RecursionError/MemoryError — it returns False, fast.
+    start = time.time()
+    assert _eval_condition("not " * 5000 + "a", {"a": True}) is False
+    assert _eval_condition("(" * 5000 + "a" + ")" * 5000, {"a": True}) is False
+    assert time.time() - start < 2.0
+
+
+def test_condition_rejects_comparisons_and_literals():
+    # Only boolean composition of named blocks is allowed; numbers/strings/compares
+    # are not part of the Sigma condition grammar we support and must be rejected.
+    assert _eval_condition("1 == 1", {}) is False
+    assert _eval_condition("'a' == 'a'", {}) is False
+    assert _eval_condition("a > b", {"a": True, "b": False}) is False
 
 
 # ── orchestration ─────────────────────────────────────────────────────────────

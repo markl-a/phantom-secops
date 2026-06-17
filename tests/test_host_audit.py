@@ -312,6 +312,23 @@ def test_default_run_honours_timeout():
     assert "timed out" in r.err.lower()
 
 
+def test_default_run_missing_binary_degrades_to_result():
+    # A non-existent executable must surface as a CmdResult (code 127, err set),
+    # never an unhandled OSError — every check that uses it relies on this.
+    r = _default_run(["this-binary-does-not-exist-secops", "--version"])
+    assert r.code == 127
+    assert r.out == ""
+    assert r.err  # the spawn error message is captured
+
+
+def test_check_degrades_to_unknown_when_runner_fails():
+    # When the injected runner reports a spawn failure (code 127), a check must
+    # return status=unknown (info), not a false fail/pass.
+    f = check_win_firewall(fixed_run(out="", code=127, err="binary not found"))
+    assert f["status"] == "unknown"
+    assert f["severity"] == "info"
+
+
 def test_audit_host_dispatches_by_platform():
     # Real (default) check registry for each platform should be non-empty.
     win = audit_host(platform_name="windows", run=fixed_run("Domain=True\nPrivate=True\nPublic=True\n"))

@@ -28,6 +28,15 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
             "allowed_hosts": list(LAB_HOSTS),
         }
 
+    # Coerce + clamp timeout so a non-int can't be interpolated raw into the
+    # `bash -c` string (defense-in-depth alongside shlex.quote on the other args)
+    # and a pathological value can't set an absurd subprocess timeout.
+    try:
+        timeout_s = int(timeout_s)
+    except (TypeError, ValueError):
+        return {"error": f"invalid timeout_s {timeout_s!r}; expected an integer", "target": target_url}
+    timeout_s = max(1, min(timeout_s, 600))
+
     # nuclei JSONL output (-jsonl) — one finding per line.
     cmd = [
         "docker", "exec", ATTACKER_CONTAINER,

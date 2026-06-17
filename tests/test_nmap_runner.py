@@ -88,3 +88,54 @@ def test_known_lab_services_includes_juice_shop() -> None:
     services = nmap_runner._known_lab_services()
     assert "juice-shop" in services
     assert "dvwa" in services
+
+
+# ── command-construction safety (no shell injection via scan_type / ports) ─────
+
+def test_scan_type_injection_is_refused(monkeypatch) -> None:
+    """A scan_type carrying shell metacharacters must NEVER reach subprocess.
+
+    The command is built into a `bash -c` string; an unvalidated scan_type like
+    '-sV; rm -rf /' would inject. The gate must reject it before any spawn.
+    """
+    def _boom(*a, **k):
+        raise AssertionError("subprocess must not run for an injected scan_type")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    result = nmap_runner.run("juice-shop", scan_type="-sV; echo PWNED")
+    assert "error" in result
+    assert "scan_type" in result["error"].lower()
+
+
+def test_scan_type_with_backticks_refused(monkeypatch) -> None:
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no spawn")))
+    result = nmap_runner.run("juice-shop", scan_type="-sV `whoami`")
+    assert "error" in result
+
+
+def test_valid_scan_types_pass_gate(monkeypatch) -> None:
+    """Known-good nmap scan flags must still be accepted."""
+    sent = {}
+
+    def _fake(cmd, *a, **k):
+        sent["cmd"] = cmd
+        return subprocess.CompletedProcess(args=cmd, returncode=0,
+                                           stdout="<nmaprun></nmaprun>", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake)
+    for st in ("-sV", "-sT", "-sS -sV", "-A", "-sV -Pn"):
+        result = nmap_runner.run("juice-shop", scan_type=st)
+        assert "error" not in result, f"{st!r} should be accepted"
+        # the scan_type must appear verbatim in the built command
+        assert st in " ".join(sent["cmd"])
+
+
+def test_ports_injection_is_refused(monkeypatch) -> None:
+    """ports is shlex-quoted, but an obviously hostile value should be rejected
+    rather than relying on quoting alone (defense in depth)."""
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no spawn")))
+    result = nmap_runner.run("juice-shop", ports="80; rm -rf /")
+    assert "error" in result
+    assert "ports" in result["error"].lower()

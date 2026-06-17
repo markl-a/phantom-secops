@@ -10,6 +10,7 @@ Usage (called by phantom-mesh tool dispatch):
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import subprocess
 import xml.etree.ElementTree as ET
@@ -18,6 +19,15 @@ from typing import Any
 ATTACKER_CONTAINER = "secops-attacker"
 LAB_NETWORK = "secops-lab"
 
+# Command-construction safety: the nmap command is assembled into a `bash -c`
+# string, so every interpolated argument is validated against a strict pattern
+# before use. `target` is gated to a fixed service-name allowlist; `ports` and
+# `scan_type` are whitelisted here. This is defense-in-depth over shlex.quote —
+# a security tool must not have an unvalidated shell-construction parameter even
+# if no current caller is hostile.
+_SCAN_TYPE_RE = re.compile(r"^-[A-Za-z]{1,2}(?: -[A-Za-z]{1,2})*$")
+_PORTS_RE = re.compile(r"^\d{1,5}(?:[,-]\d{1,5})*$")
+
 
 def run(target: str, ports: str = "top-1000", scan_type: str = "-sV") -> dict[str, Any]:
     """Run nmap against an in-lab target. Refuses non-lab targets."""
@@ -25,6 +35,20 @@ def run(target: str, ports: str = "top-1000", scan_type: str = "-sV") -> dict[st
         return {
             "error": f"refusing to scan '{target}' — not a known lab service",
             "lab_services": _known_lab_services(),
+        }
+
+    if not _SCAN_TYPE_RE.match(scan_type):
+        return {
+            "error": (f"refusing scan_type '{scan_type}' — only space-separated "
+                      "nmap flags like '-sV' or '-sS -sV' are allowed"),
+            "target": target,
+        }
+
+    if ports != "top-1000" and not _PORTS_RE.match(ports):
+        return {
+            "error": (f"refusing ports '{ports}' — expected 'top-1000' or a "
+                      "comma/range list of port numbers (e.g. '80,443,8000-8100')"),
+            "target": target,
         }
 
     port_flag = "--top-ports 1000" if ports == "top-1000" else f"-p {shlex.quote(ports)}"
