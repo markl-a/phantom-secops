@@ -10,8 +10,14 @@ import json
 import shlex
 import subprocess
 from typing import Any
+from urllib.parse import urlsplit
 
 ATTACKER_CONTAINER = "secops-attacker"
+
+# Authoritative scope: only these hosts may be scanned. Keyed on the URL's
+# hostname (exact match), never a substring of the whole URL — otherwise a host
+# like evil.example.com/?next=juice-shop would slip through the gate.
+LAB_HOSTS = ("juice-shop", "dvwa", "dvwa-db", "metasploitable", "attacker")
 
 
 def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: int = 90) -> dict[str, Any]:
@@ -19,7 +25,7 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
     if not _is_lab_url(target_url):
         return {
             "error": f"refusing to scan '{target_url}' — must point at an in-lab host",
-            "allowed_hosts": ["juice-shop", "dvwa", "metasploitable"],
+            "allowed_hosts": list(LAB_HOSTS),
         }
 
     # nuclei JSONL output (-jsonl) — one finding per line.
@@ -38,6 +44,10 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s + 30)
     except subprocess.TimeoutExpired:
         return {"error": f"nuclei scan exceeded {timeout_s + 30}s timeout", "target": target_url}
+    except OSError as exc:
+        # docker binary missing / not on PATH (the offline case) — degrade to a
+        # structured error so the kill-chain keeps running rather than crashing.
+        return {"error": f"could not launch docker: {exc}", "target": target_url}
 
     findings: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
@@ -66,7 +76,14 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
 
 
 def _is_lab_url(url: str) -> bool:
-    return any(host in url for host in ("juice-shop", "dvwa", "metasploitable"))
+    """True only if the URL's hostname is exactly a known lab service.
+
+    Matching the hostname (not the raw URL) closes a gate-bypass where a lab
+    service name in the path/query/subdomain of an external host would pass.
+    """
+    # urlsplit needs a scheme to populate .hostname; add a default if absent.
+    parsed = urlsplit(url if "://" in url else f"//{url}", scheme="http")
+    return parsed.hostname in LAB_HOSTS
 
 
 def _extract_cve(info: dict[str, Any]) -> str | None:
