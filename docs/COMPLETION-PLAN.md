@@ -86,3 +86,17 @@ or are explicitly post-portfolio (G5–G7).
 What remains is gated on **docker** (verify the live kill-chain end-to-end, G2's last mile)
 or is **post-portfolio** (G5–G7: render gaps, full phantom-mesh orchestration, LLM prose),
 plus the **merge of PR #10** (user's call). Pausing per the operating rules.
+
+## Update (post-merge)
+
+- **PR #10 merged → `main` is now consistent** (real MTTD on main; the doc-vs-code mismatch
+  is gone). CI green on main.
+- **CI PRs handled:** #4 (pip-cache fix) merged; #3 (40-file stale/divergent CI PR) closed
+  with an explanation (main already has CI + has moved past its architecture).
+- **G5 — DONE (PR #11).** All 8 agents render to *valid* mesh TOML; nuclei/nikto marked as
+  pending-MCP-wrapper; fixed an invalid-TOML bug (inline `#` in the tools array). Suite 117.
+- **G6 reality:** meaningfully running the lab kill-chain through phantom-mesh agent loops
+  needs the **docker** lab (the lab agents call nmap/nuclei against the containers) **and**
+  MCP wrappers for nuclei/nikto. So both live verification (G2 last mile) and a meaningful
+  G6 run are **docker-gated**. The *mechanism* (mesh agent → secops MCP tool) is already
+  proven by the endpoint tool (`checkup` → agent → MCP). Awaiting docker to proceed.
