@@ -179,12 +179,44 @@ def _run_pipeline(
     print(f"  [t+{end_t:5.1f}s] done")
     timeline.append((end_t, "sys", "done"))
 
-    pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline, mock=args.mock)
+    # Honesty gate: if any live scanner could not run (docker/nmap/nuclei
+    # missing), flag the run as DEGRADED on the console and in both reports
+    # rather than emitting a clean-looking "0 findings" result.
+    degradations = _scan_degradations(recon, vuln, mock=args.mock)
+    if degradations:
+        print()
+        print("  ⚠ DEGRADED RUN — one or more scanners could not run; results are "
+              "INCOMPLETE (not a clean result):")
+        for d in degradations:
+            print(f"    - {d}")
+
+    pentest_md = _compose_pentest_report(recon, vuln, suggestions, timeline,
+                                         mock=args.mock, degradations=degradations)
     (out_dir / "pentest-report.md").write_text(pentest_md, encoding="utf-8")
-    incident_md = _compose_incident_report(triaged, correlation, timeline, mock=args.mock)
+    incident_md = _compose_incident_report(triaged, correlation, timeline,
+                                           mock=args.mock, degradations=degradations)
     (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
 
     return timeline, pentest_md, incident_md
+
+
+def _scan_degradations(
+    recon: dict[str, Any], vuln: dict[str, Any], mock: bool,
+) -> list[str]:
+    """Human-readable list of scanners that could not run this live run.
+
+    Empty in mock mode (canned data never degrades) and empty when every live
+    scanner ran. A non-empty list means the run is INCOMPLETE and must not be
+    reported as a clean scan.
+    """
+    if mock:
+        return []
+    out: list[str] = []
+    if recon.get("error"):
+        out.append(f"recon (nmap): {recon['error']}")
+    for err in vuln.get("errors", []):
+        out.append(f"vuln-scan (nuclei): {err}")
+    return out
 
 
 # ─── Red pipeline implementations ────────────────────────────────────────
@@ -219,10 +251,19 @@ def _run_vuln_scan(
     # for tests.
     nuclei_run = nuclei_run or nuclei_runner.run
     findings: list[dict[str, Any]] = []
+    errors: list[str] = []
     for url in _http_targets(target, recon):
         result = nuclei_run(url)
+        # A runner that couldn't run (docker/nuclei missing) returns an {"error":
+        # ...} dict with no findings. Record it so the caller can report the scan
+        # as DEGRADED instead of fake-greening a clean "0 findings" result.
+        if result.get("error"):
+            errors.append(f"{url}: {result['error']}")
         findings.extend(result.get("findings", []))
-    return {"target": target, "findings": findings}
+    out: dict[str, Any] = {"target": target, "findings": findings}
+    if errors:
+        out["errors"] = errors
+    return out
 
 
 def _run_exploit_suggest(vuln: dict[str, Any], mock: bool, use_llm: bool) -> str:
@@ -338,12 +379,32 @@ def _blue_threat_correlate(triaged: list[dict[str, Any]]) -> list[dict[str, Any]
 
 # ─── Report composition ──────────────────────────────────────────────────
 
+def _render_scan_status(degradations: list[str] | None) -> str:
+    """A prominent DEGRADED banner when scanners could not run, else ''.
+
+    Keeping this empty for a healthy (or mock) run means existing report output
+    is unchanged; a degraded run gets an explicit INCOMPLETE warning so the
+    report can never be mistaken for a clean bill of health.
+    """
+    if not degradations:
+        return ""
+    lines = [
+        "> ⚠ **DEGRADED RUN — results are INCOMPLETE.** One or more scanners could",
+        "> not run (tool/docker unavailable). The findings below are NOT a clean",
+        "> bill of health; treat unscanned surface as **Skipped**, not safe:",
+        ">",
+    ]
+    lines += [f"> - {d}" for d in degradations]
+    return "\n".join(lines) + "\n\n"
+
+
 def _compose_pentest_report(
     recon: dict[str, Any],
     vuln: dict[str, Any],
     suggestions: str,
     timeline: list[tuple[float, str, str]],
     mock: bool = False,
+    degradations: list[str] | None = None,
 ) -> str:
     findings = vuln.get("findings", [])
     by_sev = {s: sum(1 for f in findings if f.get("severity") == s)
@@ -354,7 +415,7 @@ def _compose_pentest_report(
 **Conducted**: {datetime.now(timezone.utc).isoformat()}
 **Authorization**: Self-authorized, isolated lab. See ETHICS.md.
 
-## Executive Summary
+{_render_scan_status(degradations)}## Executive Summary
 
 A multi-agent pipeline executed a full kill-chain in {_total_seconds(timeline):.1f}
 seconds. The recon agent identified {len(recon.get('open_ports', []))} open service(s).
@@ -398,13 +459,14 @@ def _compose_incident_report(
     correlation: list[dict[str, Any]],
     timeline: list[tuple[float, str, str]],
     mock: bool = False,
+    degradations: list[str] | None = None,
 ) -> str:
     p1 = sum(1 for t in triaged if t["priority"] == "P1")
     p2 = sum(1 for t in triaged if t["priority"] == "P2")
     p3 = sum(1 for t in triaged if t["priority"] == "P3")
     return f"""# Incident Report — Lab observation, {datetime.now(timezone.utc).date().isoformat()}
 
-## TL;DR
+{_render_scan_status(degradations)}## TL;DR
 
 {len(correlation)} actor(s) observed against the lab. Triage pipeline produced
 {p1} P1, {p2} P2, {p3} P3 grouped alerts. All activity attributable to the lab
