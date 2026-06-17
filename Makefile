@@ -25,6 +25,13 @@ cwd     = "$${PHANTOM_SECOPS_ROOT}"
 env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
 
 [[mcp_servers]]
+name    = "secops_log_ingest"
+command = "python3"
+args    = ["-m", "phantom_secops.mcp.secops_log_ingest_server"]
+cwd     = "$${PHANTOM_SECOPS_ROOT}"
+env     = { PYTHONPATH = "$${PHANTOM_SECOPS_ROOT}" }
+
+[[mcp_servers]]
 name    = "secops_self_audit"
 command = "python3"
 args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]

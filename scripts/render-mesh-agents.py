@@ -39,7 +39,7 @@ except ImportError:
 # Mapping: phantom-secops tool name → (mesh tool name, capability hints, classification)
 TOOL_MAP: dict[str, tuple[str, list[str], str]] = {
     "nmap_runner":   ("secops_recon.scan_target", ["network.scan.passive", "target.lab_only"], "red"),
-    "log_ingest":    ("secops_log.scan_log",      ["read.log_files", "target.localhost_only"], "blue"),
+    "log_ingest":    ("secops_log_ingest.scan_window", ["read.log_files", "write.alerts_journal", "target.localhost_only"], "blue"),
     # Phantom-mesh built-ins (no MCP needed)
     "file_read":     ("file_read",  [], "internal"),
     "file_write":    ("file_write", [], "internal"),
