@@ -23,6 +23,7 @@ many Sigma rules target.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from typing import Callable
@@ -69,6 +70,49 @@ def _match_block(block: dict, event: dict) -> bool:
     return all(_match_field(k, v, event) for k, v in block.items())
 
 
+def _safe_bool_eval(expr: str, blocks: dict) -> bool:
+    """Evaluate a boolean composition of block names — no Python eval().
+
+    Parses ``expr`` with ``ast`` and walks ONLY a whitelist of node types:
+    boolean ops (and/or), unary ``not``, parentheses, and bare names that
+    resolve to a block's truthiness. Anything else — arithmetic, comparisons,
+    calls, attribute access, subscripts, literals — is rejected (returns False).
+
+    This closes the eval() hazards the old implementation carried: a crafted
+    Sigma ``condition`` could trigger arithmetic DoS (``2 ** 100000000``) or be
+    a vector for sandbox-escape shapes. Unknown names resolve to False so an
+    undeclared/unmatched block name behaves exactly as before.
+    """
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        return False
+
+    def _walk(node: ast.AST) -> bool:
+        if isinstance(node, ast.Expression):
+            return _walk(node.body)
+        if isinstance(node, ast.BoolOp):
+            results = [_walk(v) for v in node.values]
+            if isinstance(node.op, ast.And):
+                return all(results)
+            if isinstance(node.op, ast.Or):
+                return any(results)
+            raise ValueError("unsupported boolean operator")
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not _walk(node.operand)
+        if isinstance(node, ast.Name):
+            # An undeclared block name is False (an unmatched selection block).
+            return bool(blocks.get(node.id, False))
+        if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+            return node.value
+        raise ValueError(f"unsupported node: {type(node).__name__}")
+
+    try:
+        return bool(_walk(tree))
+    except (ValueError, TypeError):
+        return False
+
+
 def _eval_condition(cond: str, blocks: dict) -> bool:
     cond = (cond or "selection").strip()
     m = re.fullmatch(r"(1|all)\s+of\s+(.+)", cond)
@@ -82,15 +126,8 @@ def _eval_condition(cond: str, blocks: dict) -> bool:
             names = [n for n in blocks if n == pat]
         vals = [blocks[n] for n in names]
         return any(vals) if quant == "1" else (bool(vals) and all(vals))
-    expr = cond
-    for name in sorted(blocks, key=len, reverse=True):
-        expr = re.sub(rf"\b{re.escape(name)}\b", str(blocks[name]), expr)
-    # any leftover identifier that isn't a known keyword/literal → unmatched block
-    expr = re.sub(r"\b(?!True\b|False\b|and\b|or\b|not\b)[A-Za-z_]\w*\b", "False", expr)
-    try:
-        return bool(eval(expr, {"__builtins__": {}}, {}))  # noqa: S307 — sanitised booleans only
-    except Exception:  # noqa: BLE001
-        return False
+    # Boolean composition of block names only — parsed with ast, never eval().
+    return _safe_bool_eval(cond, blocks)
 
 
 def match_event(detection: dict, event: dict) -> bool:
