@@ -108,6 +108,37 @@ def test_run_parses_jsonl_findings(monkeypatch) -> None:
     assert findings[1]["cve"] is None
 
 
+# ── command-construction safety (timeout_s / severity must not inject) ─────────
+
+def test_severity_is_shell_quoted(monkeypatch) -> None:
+    """A severity value with shell metacharacters must be quoted, not injected."""
+    sent = {}
+
+    def _capture(cmd, *a, **k):
+        sent["cmd"] = cmd[-1]  # the bash -c payload
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _capture)
+    nuclei_runner.run("http://juice-shop:3000", severity="high; rm -rf /")
+    # the literal `; rm` must not appear unquoted as a shell command separator
+    assert "-severity 'high; rm -rf /'" in sent["cmd"]
+
+
+def test_timeout_is_coerced_to_int(monkeypatch) -> None:
+    """A non-int timeout must not be interpolated raw into the command string."""
+    sent = {}
+
+    def _capture(cmd, *a, **k):
+        sent["cmd"] = cmd[-1]
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _capture)
+    result = nuclei_runner.run("http://juice-shop:3000", timeout_s="90; echo PWNED")  # type: ignore[arg-type]
+    # injection string must never reach the command; either coerced/rejected.
+    assert "PWNED" not in sent.get("cmd", "")
+    assert "echo" not in sent.get("cmd", "") or "error" in result
+
+
 # ── _extract_cve ───────────────────────────────────────────────────────────────
 
 def test_extract_cve_list() -> None:
