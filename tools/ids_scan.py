@@ -82,10 +82,17 @@ def _safe_bool_eval(expr: str, blocks: dict) -> bool:
     Sigma ``condition`` could trigger arithmetic DoS (``2 ** 100000000``) or be
     a vector for sandbox-escape shapes. Unknown names resolve to False so an
     undeclared/unmatched block name behaves exactly as before.
+
+    A length cap and RecursionError/MemoryError handling keep a maliciously deep
+    expression (e.g. thousands of nested ``not``/parentheses) from crashing the
+    engine — it returns False instead.
     """
+    # A real Sigma condition is short; anything over this is hostile, not a rule.
+    if len(expr) > 1000:
+        return False
     try:
         tree = ast.parse(expr, mode="eval")
-    except SyntaxError:
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
         return False
 
     def _walk(node: ast.AST) -> bool:
@@ -109,7 +116,7 @@ def _safe_bool_eval(expr: str, blocks: dict) -> bool:
 
     try:
         return bool(_walk(tree))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError, MemoryError):
         return False
 
 

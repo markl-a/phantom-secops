@@ -145,6 +145,15 @@ def test_condition_rejects_attribute_and_call_injection():
         assert _eval_condition(cond, {"a": True, "b": True, "c": True}) is False
 
 
+def test_condition_rejects_deeply_nested_expression():
+    # A crafted condition with extreme nesting must not crash the engine with an
+    # uncaught RecursionError/MemoryError — it returns False, fast.
+    start = time.time()
+    assert _eval_condition("not " * 5000 + "a", {"a": True}) is False
+    assert _eval_condition("(" * 5000 + "a" + ")" * 5000, {"a": True}) is False
+    assert time.time() - start < 2.0
+
+
 def test_condition_rejects_comparisons_and_literals():
     # Only boolean composition of named blocks is allowed; numbers/strings/compares
     # are not part of the Sigma condition grammar we support and must be rejected.
