@@ -72,7 +72,14 @@ def audit_impl(args: dict[str, Any]) -> dict[str, Any]:
                               "message": f"agents.toml not present at {path}"}],
                 "scanned": str(path)}
 
-    text = path.read_text(encoding="utf-8")
+    # Read defensively: a directory, an unreadable path, or a non-UTF-8 file must
+    # degrade to a structured finding rather than raising out of the MCP call.
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {"findings": [{"check": "unreadable_file", "severity": "info",
+                              "message": f"could not read {path}: {type(exc).__name__}"}],
+                "scanned": str(path)}
     current_section: str | None = None
     for ln, raw in enumerate(text.splitlines(), start=1):
         stripped = raw.strip()

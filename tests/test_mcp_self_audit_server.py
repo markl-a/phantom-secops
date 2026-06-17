@@ -53,6 +53,23 @@ def test_detects_zero_dot_zero_listener(tmp_path: Path):
     assert any(f["check"] == "exposed_listener" for f in out["findings"])
 
 
+def test_unreadable_path_degrades_to_finding(tmp_path: Path):
+    # A directory (or otherwise unreadable path) must degrade to a structured
+    # finding, not raise PermissionError/IsADirectoryError out of the MCP call.
+    out = secops_self_audit_server.audit_impl({"path": str(tmp_path)})  # a directory
+    assert out["findings"], "expected a structured 'unreadable' finding"
+    assert any(f["check"] == "unreadable_file" for f in out["findings"])
+    assert "scanned" in out
+
+
+def test_non_utf8_file_degrades_to_finding(tmp_path: Path):
+    # A non-UTF-8 agents.toml must not crash the audit with UnicodeDecodeError.
+    cfg = tmp_path / "agents.toml"
+    cfg.write_bytes(b'[core]\nhost = "\xff\xfe"\n')
+    out = secops_self_audit_server.audit_impl({"path": str(cfg)})
+    assert any(f["check"] == "unreadable_file" for f in out["findings"])
+
+
 def test_clean_config_returns_no_findings(tmp_path: Path):
     cfg = tmp_path / "agents.toml"
     cfg.write_text(
