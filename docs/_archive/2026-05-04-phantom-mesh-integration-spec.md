@@ -1,3 +1,8 @@
+> ARCHIVED 2026-06-19 — frozen historical snapshot; current status lives in /ROADMAP.md
+>
+> Superseded: the MCP layer shipped as seven servers under `phantom_secops/mcp/`
+> (not the three named here), and the `x-phantom` enforcer is still planned-next.
+
 # phantom-secops ⇄ phantom-mesh integration (day-1 design)
 
 **Date:** 2026-05-04

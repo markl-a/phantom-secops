@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — frozen historical snapshot; current status lives in /ROADMAP.md
+
 # Completion plan — original purpose (purpose A)
 
 > Living plan + progress log for the autonomous effort to *complete* phantom-secops'

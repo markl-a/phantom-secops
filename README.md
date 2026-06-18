@@ -11,7 +11,9 @@
 
 [![Powered by phantom-mesh](https://img.shields.io/badge/powered%20by-phantom--mesh-purple)](https://github.com/markl-a/phantom-mesh)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+
+> **Status:** see [ROADMAP.md](ROADMAP.md) (single source of truth for what's shipped /
+> in progress / planned). **Docs:** [docs/INDEX.md](docs/INDEX.md).
 
 ---
 
@@ -163,6 +165,8 @@ exploit-suggester emits prose only; the endpoint tools are read-only and self-on
 ## Related
 
 - 🌟 [phantom-mesh](https://github.com/markl-a/phantom-mesh) — the agent runtime this is built on.
+- 📚 [docs/INDEX.md](docs/INDEX.md) — full documentation index.
+- 🗺️ [ROADMAP.md](ROADMAP.md) — shipped / in progress / planned status.
 
 ## License
 

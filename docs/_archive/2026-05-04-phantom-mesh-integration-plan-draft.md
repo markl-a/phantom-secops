@@ -1,3 +1,7 @@
+> ARCHIVED 2026-06-19 — frozen historical snapshot; current status lives in /ROADMAP.md
+>
+> Early draft of the 2026-05-04 integration spec; kept for history.
+
 # phantom-mesh integration Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
