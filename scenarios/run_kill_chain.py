@@ -32,6 +32,7 @@ from tools import nuclei_runner  # type: ignore[import-not-found]  # noqa: E402
 
 REPORTS_DIR = REPO_ROOT / "reports"
 MOCKS_DIR = REPO_ROOT / "lab" / "mocks"
+MOCK_LAB_LOGS = MOCKS_DIR / "lab-logs"
 
 # Simulated per-step durations (seconds) used in --mock mode so the red and blue
 # timelines are meaningful instead of all-zero. Live mode ignores these and uses
@@ -150,7 +151,7 @@ def _run_pipeline(
 
     # blue log-anomaly → alert-triage (DETECTION) — issued before red impact
     event("blue", "blue-log-anomaly  scanning canned attack log", BLUE_DURATIONS["log-anomaly"])
-    alerts = _blue_log_anomaly(mock=args.mock)
+    alerts = _blue_log_anomaly(mock=args.mock, out_dir=out_dir)
     (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
     event("blue", f"blue-log-anomaly  → {len(alerts)} raw alerts")
 
@@ -304,11 +305,35 @@ def _exploit_prose(f: dict[str, Any]) -> str:
 
 # ─── Blue pipeline implementations ────────────────────────────────────────
 
-def _blue_log_anomaly(mock: bool) -> list[dict[str, Any]]:
-    """Backward-compatible shim around tools.log_anomaly.scan_log_lines."""
-    from tools.log_anomaly import scan_log_lines  # imported lazily to keep test isolation
+def _blue_log_anomaly(mock: bool, out_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Blue ingest + anomaly detection (two complementary passes feed triage).
+
+    1. tools.log_ingest.scan_window — the polling "ingest" scanner. It tails the
+       access *.log files, journals matched alerts to a per-run JSONL, and
+       returns them. This is what makes the kill-chain GENUINELY exercise
+       log_ingest (previously dead code from the orchestrator's perspective —
+       only reachable via the standalone MCP server).
+    2. tools.log_anomaly.scan_log_lines — a URL-decoding matcher that also
+       catches percent-encoded payloads the raw ingest pass would miss.
+
+    The merged alert list flows into _blue_alert_triage -> _blue_threat_correlate.
+    """
+    from tools import log_ingest  # lazy import: test isolation + monkeypatchability
+    from tools.log_anomaly import scan_log_lines
+
+    ingest_dir = MOCK_LAB_LOGS if mock else log_ingest.LOG_DIR
+    if out_dir is not None:
+        ingest = log_ingest.scan_window(
+            log_dir=ingest_dir, alerts_file=out_dir / "ingest-journal.jsonl",
+        )
+    else:
+        ingest = log_ingest.scan_window(log_dir=ingest_dir, write=False)
+    ingest_alerts = ingest["alerts"]
+
     log_path = MOCKS_DIR / "attack-log.txt" if mock else REPO_ROOT / "reports/lab-logs/juice-shop.log"
-    return scan_log_lines(log_path, asset="juice-shop")
+    anomaly_alerts = scan_log_lines(log_path, asset="juice-shop")
+
+    return ingest_alerts + anomaly_alerts
 
 
 def _blue_alert_triage(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:

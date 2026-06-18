@@ -26,11 +26,27 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
 ]
 
 
-def scan_window(window_seconds: int = 30) -> dict[str, Any]:  # noqa: ARG001  (kept for caller API compatibility)
-    """Read recent log lines, emit alerts to ALERTS_FILE."""
+def scan_window(
+    window_seconds: int = 30,
+    *,
+    log_dir: Path | None = None,
+    alerts_file: Path | None = None,
+    write: bool = True,
+) -> dict[str, Any]:  # noqa: ARG001  (window_seconds kept for caller API compatibility)
+    """Read recent log lines, emit alerts to the alerts journal.
+
+    `log_dir` / `alerts_file` default to the module-level LOG_DIR / ALERTS_FILE
+    (resolved at call time so existing monkeypatch-based tests keep working).
+    Callers such as the kill-chain orchestrator pass their own paths to scan a
+    fixture dir and journal into a per-run file. `write=False` scans in memory
+    without touching disk. The returned dict also carries the matched `alerts`
+    so a caller can feed them straight into triage without re-reading the journal.
+    """
+    scan_dir = LOG_DIR if log_dir is None else Path(log_dir)
+    journal = ALERTS_FILE if alerts_file is None else Path(alerts_file)
     alerts: list[dict[str, Any]] = []
 
-    for log_file in LOG_DIR.glob("*.log"):
+    for log_file in scan_dir.glob("*.log"):
         if not log_file.exists():
             continue
         # Quick last-N-lines read; for production use rotating tail offsets.
@@ -53,16 +69,17 @@ def scan_window(window_seconds: int = 30) -> dict[str, Any]:  # noqa: ARG001  (k
                     "severity_hint": severity_hint,
                 })
 
-    if alerts:
-        ALERTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with ALERTS_FILE.open("a", encoding="utf-8") as out:
+    if write and alerts:
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        with journal.open("a", encoding="utf-8") as out:
             for a in alerts:
                 out.write(json.dumps(a, ensure_ascii=False) + "\n")
 
     return {
         "alerts_emitted": len(alerts),
-        "alerts_file": str(ALERTS_FILE),
+        "alerts_file": str(journal),
         "window_seconds": window_seconds,
+        "alerts": alerts,
     }
 
 
