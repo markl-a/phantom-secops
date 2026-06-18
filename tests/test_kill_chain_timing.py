@@ -122,3 +122,21 @@ def test_detection_issued_before_impact_in_pipeline_order(tmp_path):
     detect_i = next(i for i, l in enumerate(labels) if "alert-triage" in l and "→" in l)
     impact_i = next(i for i, l in enumerate(labels) if "exploit-suggest" in l and "done" in l)
     assert detect_i < impact_i
+
+
+def test_main_writes_summary_json_artifact(tmp_path, monkeypatch):
+    import json
+    import scenarios.run_kill_chain as rk
+
+    monkeypatch.setattr("sys.argv",
+                        ["run_kill_chain.py", "--mock", "--out", str(tmp_path)])
+    assert rk.main() == 0
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["mttd"] == 15
+    assert summary["outcome"] == "defender"
+    assert summary["detect_margin"] == 35
+    assert summary["time_to_impact"] == 50
+    assert isinstance(summary["timeline"], list) and summary["timeline"]
+    assert all(set(e.keys()) == {"t", "side", "label"} for e in summary["timeline"])
+    ts = [e["t"] for e in summary["timeline"]]
+    assert ts == sorted(ts)
