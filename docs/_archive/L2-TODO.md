@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — frozen historical snapshot; current status lives in /ROADMAP.md
+
 # L2 Integration — TODO Checklist (~5 h, 2 evenings)
 
 Companion to [`L2-INTEGRATION-PLAN.md`](L2-INTEGRATION-PLAN.md). **Revised 2026-05-11** after re-surveying actual phantom-secops code state.

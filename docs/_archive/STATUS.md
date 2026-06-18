@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — frozen historical snapshot; current status lives in /ROADMAP.md
+
 # Status
 
 **Phase: 🟡 Public Alpha — opened 2026-05-10**
