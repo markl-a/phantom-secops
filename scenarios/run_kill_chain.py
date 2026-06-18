@@ -103,6 +103,7 @@ def main() -> int:
     print(f"   - {len(list(out_dir.glob('*.json'))) + len(list(out_dir.glob('*.jsonl')))} structured artifacts")
     print()
     m = _metrics(timeline)
+    (out_dir / "summary.json").write_text(json.dumps({**m, "timeline": [{"t": t, "side": side, "label": label} for t, side, label in sorted(timeline, key=lambda e: e[0])]}, indent=2, ensure_ascii=False), encoding="utf-8")
     sim = "  (simulated timing — mock mode)" if args.mock else ""
     print(f"→ MTTD = {m['mttd']:.0f}s{sim}")
     if m["outcome"] == "defender":
