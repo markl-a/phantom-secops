@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — 內容已併入 docs/phantom-secops.md;此為歷史版本。
+
 # L2 Integration Plan: phantom-secops × phantom-mesh
 
 **Status:** drafted 2026-05-10, target completion 5/14 evening + 5/15 evening (~5h total).

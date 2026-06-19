@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — 內容已併入 docs/phantom-secops.md;此為歷史版本。
+
 # Demo walkthrough
 
 Two short demos, both runnable on a laptop. Use these as the script when showing the

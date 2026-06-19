@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — 內容已併入 docs/phantom-secops.md;此為歷史版本。
+
 # Interview talk track
 
 Notes for talking about phantom-secops in a security-engineering interview.

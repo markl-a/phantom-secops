@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — 內容已併入 docs/phantom-secops.md;此為歷史版本。
+
 # Key engineering decisions
 
 Short decision records for the choices that shaped this project. Each is
