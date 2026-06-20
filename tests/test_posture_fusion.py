@@ -92,3 +92,58 @@ def test_each_action_carries_source_tool_and_plain_language():
     for a in fuse_posture(HOST, VULN, IDS):
         assert a.tool in {"host_audit", "vuln_scan", "ids_scan"}
         assert a.action and isinstance(a.action, str)
+
+
+# ── malformed-input robustness: the deterministic spine must degrade, not crash ──
+
+def test_non_string_severity_does_not_crash():
+    # A finding with a non-string severity (e.g. an int from a malformed Trivy
+    # JSON quirk) must not raise AttributeError on .upper(); it degrades to info.
+    vuln = {"findings": [{"id": "CVE-X", "pkg": "p", "severity": 5}]}
+    actions = fuse_posture({}, vuln, {})
+    assert len(actions) == 1
+    assert actions[0].severity == 0 and actions[0].severity_name == "info"
+
+
+def test_mixed_id_types_within_one_tool_sort_without_typeerror():
+    # Two same-tool findings tie on severity; one id is a str, one an int. The
+    # sort key must not raise TypeError comparing str < int — ids are stringified.
+    vuln = {"findings": [
+        {"id": "CVE-1", "pkg": "p", "severity": "HIGH"},
+        {"id": 99, "pkg": "q", "severity": "HIGH"},
+    ]}
+    actions = fuse_posture({}, vuln, {})
+    assert [a.id for a in actions] == ["99", "CVE-1"]  # stable string sort
+    assert all(isinstance(a.id, str) for a in actions)
+
+
+def test_none_and_empty_severity_fall_back_to_default():
+    vuln = {"findings": [
+        {"id": "a", "pkg": "p", "severity": None},
+        {"id": "b", "pkg": "p", "severity": ""},
+    ]}
+    ids = {"alerts": [{"title": "t", "level": None}]}
+    host = {"checks": [{"check": "c", "status": "fail", "severity": None}]}
+    actions = fuse_posture(host, vuln, ids)
+    # all degrade to info (0) rather than crashing
+    assert {a.severity for a in actions} == {0}
+    assert len(actions) == 4
+
+
+def test_non_string_id_and_check_name_are_stringified():
+    host = {"checks": [{"check": 77, "status": "fail", "severity": "high"}]}
+    ids = {"alerts": [{"title": 123, "level": "critical"}]}
+    actions = fuse_posture(host, {}, ids)
+    by_tool = {a.tool: a for a in actions}
+    assert by_tool["host_audit"].id == "77"
+    assert by_tool["ids_scan"].id == "123"
+
+
+def test_valid_string_findings_behaviour_unchanged():
+    # Regression guard: the robustness coercion must not alter behaviour for the
+    # normal all-string case — same ranking/severities as the canonical fixtures.
+    actions = fuse_posture(HOST, VULN, IDS)
+    by_id = {a.id: a for a in actions}
+    assert by_id["CVE-2024-0001"].severity == 4
+    assert by_id["firewall_profiles"].severity == 3
+    assert by_id["Port scan"].severity == 1
