@@ -95,3 +95,43 @@ def test_scan_window_does_not_create_alerts_file_when_clean(monkeypatch, tmp_pat
     (log_dir / "clean.log").write_text("1.2.3.4 - - GET /home\n", encoding="utf-8")
     log_ingest.scan_window()
     assert not alerts_file.exists()  # no alerts => no file written
+
+
+def test_scan_window_detects_url_encoded_xss(monkeypatch, tmp_path):
+    # An attacker can trivially URL-encode the payload to evade raw-line matching.
+    # The scanner must URL-decode before matching (as tools.log_anomaly does), or
+    # the blue path silently misses the attack. Regression guard for that gap.
+    log_dir, alerts_file = _redirect(monkeypatch, tmp_path)
+    (log_dir / "enc.log").write_text(
+        "9.9.9.9 - - GET /search?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E\n",
+        encoding="utf-8",
+    )
+    result = log_ingest.scan_window()
+    assert result["alerts_emitted"] == 1
+    a = json.loads(alerts_file.read_text(encoding="utf-8").strip())
+    assert a["category"] == "xss"
+    assert a["severity_hint"] == "medium"
+    # evidence keeps the raw (still-encoded) line as it actually appeared in the log
+    assert "%3Cscript%3E" in a["evidence"]
+
+
+def test_scan_window_detects_url_encoded_sqli_and_traversal(monkeypatch, tmp_path):
+    log_dir, _ = _redirect(monkeypatch, tmp_path)
+    (log_dir / "enc2.log").write_text(
+        # union%20select  and  ..%2f..%2fetc encodings
+        "9.9.9.9 - - GET /rest?q=union%20select%20password%20from%20users\n"
+        "8.8.8.8 - - GET /file?p=%2e%2e%2f%2e%2e%2fwinini\n",
+        encoding="utf-8",
+    )
+    result = log_ingest.scan_window()
+    assert result["alerts_emitted"] == 2
+
+
+def test_scan_window_plain_text_attack_still_detected(monkeypatch, tmp_path):
+    # Decoding must not regress detection of un-encoded payloads.
+    log_dir, _ = _redirect(monkeypatch, tmp_path)
+    (log_dir / "plain.log").write_text(
+        "7.7.7.7 - - GET /page?file=../../etc/passwd\n", encoding="utf-8"
+    )
+    result = log_ingest.scan_window()
+    assert result["alerts_emitted"] == 1
