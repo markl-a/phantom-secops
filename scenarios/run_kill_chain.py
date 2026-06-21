@@ -23,6 +23,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -61,6 +64,7 @@ from phantom_secops.killchain import (  # noqa: E402,F401  (F401: several are re
 )
 
 REPORTS_DIR = REPO_ROOT / "reports"
+DEMO_CONFIG = REPO_ROOT / "secops-demo.toml"
 
 
 def _reconfigure_console_utf8() -> None:
@@ -120,6 +124,11 @@ def main() -> int:
                    help="invoke phantom-mesh for LLM-driven report writing "
                         "(requires phantom serve at localhost:7878)")
     p.add_argument("--out", default=None, help="output dir (default: reports/runs/<ts>/)")
+    p.add_argument("--driver", choices=("direct", "mesh"), default="direct",
+                   help="direct: deterministic Python orchestrator (default). "
+                        "mesh: drive the identical kill-chain via a phantom-mesh "
+                        "agent loop calling the secops_mcp façade tools "
+                        "(needs `phantom` on PATH + a provider key).")
     p.add_argument("--severity", default=NUCLEI_SEVERITY,
                    help=f"comma-separated nuclei severities for the live vuln-scan "
                         f"(default: {NUCLEI_SEVERITY}). Widen (e.g. "
@@ -131,11 +140,15 @@ def main() -> int:
     out_dir = Path(args.out) if args.out else REPORTS_DIR / "runs" / ts
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"→ phantom-secops kill-chain :: target={args.target} mock={args.mock} llm={args.use_llm}")
+    print(f"→ phantom-secops kill-chain :: target={args.target} mock={args.mock} "
+          f"llm={args.use_llm} driver={args.driver}")
     print(f"  output: {out_dir}")
     print()
 
-    timeline, pentest_md, incident_md = _run_pipeline(args, out_dir)
+    if args.driver == "mesh":
+        timeline, pentest_md, incident_md = _run_mesh(args, out_dir)
+    else:
+        timeline, pentest_md, incident_md = _run_pipeline(args, out_dir)
 
     print()
     print(f"→ artifacts at: {out_dir}")
@@ -246,6 +259,63 @@ def _run_pipeline(
     (out_dir / "incident-report.md").write_text(incident_md, encoding="utf-8")
 
     return timeline, pentest_md, incident_md
+
+
+def _run_mesh(
+    args: argparse.Namespace, out_dir: Path,
+) -> tuple[list[tuple[float, str, str]], str, str]:
+    """Drive the kill-chain through a phantom-mesh agent loop instead of Python.
+
+    Sets the per-run env the secops_mcp façade reads, invokes `phantom exec` with
+    secops-demo.toml (the agent calls recon → vuln_scan → detect → respond), then
+    reads the resulting state back so main() can report MTTD uniformly. The step
+    logic is shared with the direct driver via phantom_secops.killchain, so the
+    agent-driven output is parity-equivalent (see tests/test_demo_mock_parity.py).
+    """
+    from secops_mcp.state import KillChainState  # lazy: only needed for mesh runs
+
+    phantom_bin = os.environ.get("PHANTOM_BIN", "phantom")
+    if shutil.which(phantom_bin) is None:
+        raise RuntimeError(
+            f"--driver=mesh needs the phantom-mesh CLI on PATH (looked for "
+            f"{phantom_bin!r}). Install/point PHANTOM_BIN at it, or use "
+            f"--driver=direct."
+        )
+
+    state_file = out_dir / "_mcp_state.json"
+    env = {
+        **os.environ,
+        "PHANTOM_SECOPS_ROOT": str(REPO_ROOT),
+        "SECOPS_MCP_MOCK": "1" if args.mock else "0",
+        "SECOPS_MCP_STATE_FILE": str(state_file),
+        "SECOPS_MCP_OUT_DIR": str(out_dir),
+        "SECOPS_MCP_TARGET": args.target,
+    }
+    cmd = [
+        phantom_bin, "exec",
+        "--config", str(DEMO_CONFIG),
+        "--agent", "killchain",
+        "Run the kill-chain.",
+    ]
+    print(f"→ driving via phantom-mesh: {' '.join(cmd[:-1])} \"{cmd[-1]}\"")
+    print()
+    # Inherit stdio so the agent's reasoning + tool calls stream live (the demo).
+    result = subprocess.run(cmd, env=env)
+    print()
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"phantom exec exited {result.returncode}; the agent run failed. "
+            f"See its output above."
+        )
+
+    st = KillChainState.load(state_file)
+    if st.recon is None or not st.reports:
+        raise RuntimeError(
+            "mesh run did not complete the kill-chain — the agent never reached "
+            "the respond stage (no reports in state). See the phantom output above."
+        )
+    timeline = [tuple(e) for e in st.timeline]
+    return timeline, st.reports["pentest"], st.reports["incident"]
 
 
 if __name__ == "__main__":

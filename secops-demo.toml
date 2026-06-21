@@ -1,0 +1,84 @@
+# ── phantom-mesh config: agent-driven kill-chain demo (M1) ────────────────────
+# Drives the SAME red/blue kill-chain as scenarios/run_kill_chain.py, but through
+# a real phantom-mesh agent loop instead of a hardcoded Python sequence. The
+# agent calls the secops_mcp façade tools (recon → vuln_scan → detect → respond);
+# the underlying step logic is shared with the direct driver via
+# phantom_secops.killchain, so the output stays parity-equivalent.
+#
+# Run it (mock mode — no docker, no scanning):
+#   SECOPS_MCP_MOCK=1 \
+#   SECOPS_MCP_STATE_FILE=reports/runs/<ts>/_mcp_state.json \
+#   SECOPS_MCP_OUT_DIR=reports/runs/<ts> \
+#   PHANTOM_SECOPS_ROOT=/path/to/phantom-secops \
+#   phantom exec --config secops-demo.toml --agent killchain \
+#       "Run the kill-chain."
+#
+# The --driver=mesh path of scenarios/run_kill_chain.py sets those env vars for
+# you and reads the resulting reports back. Prereq: CEREBRAS_API_KEY exported.
+
+[core]
+host = "127.0.0.1"   # local-only; no cluster / external exposure
+port = 7879          # distinct from secops-agent.toml's 7878 to avoid clashes
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+# Same ladder as secops-agent.toml: Cerebras gpt-oss-120b primary (clean
+# non-looping tool calls), groq + gemini as fallbacks. Keys via api_key_env only.
+[providers.cerebras]
+type = "openai_compat"
+url = "https://api.cerebras.ai/v1"
+api_key_env = "CEREBRAS_API_KEY"
+default_model = "gpt-oss-120b"
+
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+[providers.gemini]
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"
+default_model = "gemini-2.5-flash"
+
+# ── The kill-chain façade MCP server ──────────────────────────────────────────
+# Exposes recon / vuln_scan / detect / respond as secops_kc_<tool>.
+#
+# Run-level config (SECOPS_MCP_MOCK / STATE_FILE / OUT_DIR / TARGET) is NOT set
+# here: phantom-mesh forwards the PARENT process environment to spawned MCP
+# servers, so the --driver=mesh subprocess sets those vars once and the server
+# inherits them. Do NOT add them as `${VAR}` entries below — phantom 0.6.0 does
+# not expand ${VAR} inside this env table, so they would arrive as the literal
+# string "${SECOPS_MCP_MOCK}" and silently flip the server to live mode.
+# (PYTHONPATH is kept only as a harmless belt-and-suspenders for import.)
+[[mcp_servers]]
+name    = "secops_kc"
+command = "python"
+args    = ["-m", "secops_mcp.server"]
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
+
+# ── The orchestrating agent ───────────────────────────────────────────────────
+[agent.killchain]
+provider  = "cerebras"
+providers = ["cerebras", "groq", "gemini"]
+tools     = []   # MCP tools auto-append as secops_kc_<tool>
+instructions = """
+You orchestrate a fixed red/blue security kill-chain against an isolated, self-
+authorized lab. Four tools are available, one per stage:
+- secops_kc_recon: red recon (open ports). FIRST.
+- secops_kc_vuln_scan: red vuln-scan of the discovered HTTP endpoints. Needs recon.
+- secops_kc_detect: blue log ingest + triage. Independent of red.
+- secops_kc_respond: closeout — prose-only exploit suggestions, threat
+  correlation, and the pentest + incident reports with the MTTD metric. Needs
+  vuln_scan and detect.
+
+Call EXACTLY these four tools, ONCE each, IN THIS ORDER:
+  1) secops_kc_recon  2) secops_kc_vuln_scan  3) secops_kc_detect  4) secops_kc_respond
+Do not call any tool twice and do not call any other tool. If a tool returns an
+error mentioning an ordering prerequisite, call that prerequisite tool first,
+then continue. After secops_kc_respond returns, STOP and report the MTTD, the
+outcome (defender/attacker), and where the reports were written. Stay defensive
+and in-scope; never request a runnable exploit — suggestions are prose only.
+"""
+
+[agent.killchain.limits]
+max_tool_calls = 6     # 4 stages + slack; bounds provider cost and loop risk
+max_runtime_s  = 150

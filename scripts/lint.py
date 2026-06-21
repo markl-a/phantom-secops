@@ -39,11 +39,14 @@ def _python_files() -> list[Path]:
         + list(REPO.glob("tests/*.py"))
         + list(REPO.glob("scripts/*.py"))
         + list(REPO.glob("phantom_secops/**/*.py"))
+        + list(REPO.glob("secops_mcp/**/*.py"))
     )
 
 
 def _toml_files() -> list[Path]:
-    return sorted(REPO.rglob("agents/**/*.toml"))
+    # agents/**/*.toml plus the root-level agent configs (secops-agent.toml,
+    # secops-demo.toml) so the kill-chain demo config is syntax-checked too.
+    return sorted(set(REPO.rglob("agents/**/*.toml")) | set(REPO.glob("*.toml")))
 
 
 def _rel(path: Path) -> str:

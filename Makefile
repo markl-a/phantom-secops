@@ -2,12 +2,16 @@
 #
 # `make demo`        — full kill-chain against the lab (requires docker compose up).
 # `make demo-mock`   — same flow on canned data, no docker, no API key. CI-safe.
+# `make demo-mock-mesh` — same canned flow, but DRIVEN BY A phantom-mesh AGENT
+#                    LOOP (recon→vuln_scan→detect→respond via the secops_mcp
+#                    façade). Needs `phantom` on PATH + CEREBRAS_API_KEY. Manual
+#                    gate for M1: output is parity-equivalent to `demo-mock`.
 # `make lab-up`      — bring up the isolated docker lab.
 # `make lab-down`    — tear down the lab.
 # `make test`        — run pytest against tool wrappers.
 # `make lint`        — basic checks (toml validation, python syntax).
 
-.PHONY: help demo demo-mock lab-up lab-down lab-status test lint lint-mesh-config mesh-sync mesh-mcp-config clean
+.PHONY: help demo demo-mock demo-mock-mesh lab-up lab-down lab-status test lint lint-mesh-config mesh-sync mesh-mcp-config clean
 
 define MESH_MCP_CONFIG_BODY
 [[mcp_servers]]
@@ -48,6 +52,9 @@ demo: lab-status  ## Run full kill-chain against the live lab
 
 demo-mock:  ## Run full kill-chain on canned data (no docker, no API key)
 	python3 scenarios/run_kill_chain.py --target juice-shop --mock
+
+demo-mock-mesh:  ## Agent-loop-driven kill-chain on canned data (needs phantom + CEREBRAS_API_KEY)
+	python3 scenarios/run_kill_chain.py --target juice-shop --mock --driver mesh
 
 lab-up:  ## Start the isolated docker lab
 	docker compose up -d
