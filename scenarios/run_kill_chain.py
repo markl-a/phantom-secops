@@ -49,6 +49,27 @@ MOCK_LAB_LOGS = MOCKS_DIR / "lab-logs"
 NUCLEI_SEVERITY = "high,critical"
 NUCLEI_TIMEOUT_S = 180  # runner clamps to <=600; observed completion ~50s
 
+
+def _reconfigure_console_utf8() -> None:
+    """Force UTF-8 on the console streams.
+
+    Windows consoles default to a legacy code page (cp950 / cp1252) that can't
+    encode the status glyphs the pipeline prints (→, ⚠), so output crashes with
+    UnicodeEncodeError. This runs at IMPORT time — not just inside main() —
+    because the pipeline functions (`_run_pipeline` / `event`) are imported and
+    called directly by tests and other entrypoints that never go through main();
+    fixing it only in main() would leave those callers crashing on a legacy
+    code page. No-op where reconfigure is unavailable (e.g. captured streams).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
+
+_reconfigure_console_utf8()
+
 # Simulated per-step durations (seconds) used in --mock mode so the red and blue
 # timelines are meaningful instead of all-zero. Live mode ignores these and uses
 # real wall-clock.
@@ -90,16 +111,6 @@ class Clock:
 
 
 def main() -> int:
-    # Windows consoles default to a legacy code page (cp950 / cp1252) that can't
-    # encode the status glyphs we print (→, ⚠). A live run on Windows otherwise
-    # crashes mid-pipeline with UnicodeEncodeError the moment it hits the DEGRADED
-    # banner. Force UTF-8 on the console streams; harmless no-op elsewhere.
-    for _stream in (sys.stdout, sys.stderr):
-        try:
-            _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
-        except (AttributeError, ValueError):
-            pass
-
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--target", default="juice-shop",
                    help="lab service name (default: juice-shop)")

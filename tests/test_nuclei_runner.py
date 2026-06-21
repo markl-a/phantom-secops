@@ -81,6 +81,32 @@ def test_run_handles_timeout(monkeypatch) -> None:
     assert "timeout" in result["error"].lower()
 
 
+def test_run_errors_when_nuclei_binary_missing(monkeypatch) -> None:
+    """A missing nuclei binary (bash exit 127, empty stdout) must surface an
+    error, not a silent clean '0 findings' result that reads as a clean scan."""
+    def _missing(*a, **k):
+        return subprocess.CompletedProcess(
+            args=a, returncode=127, stdout="", stderr="bash: nuclei: command not found")
+
+    monkeypatch.setattr(subprocess, "run", _missing)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" in result
+    assert not result.get("findings")
+
+
+def test_run_zero_findings_clean_scan_is_not_an_error(monkeypatch) -> None:
+    """A successful scan that legitimately matched nothing exits 0 with empty
+    stdout — it must return findings=[] WITHOUT an error, else every clean scan
+    false-flags as a failure (the inverse of the missing-binary case above)."""
+    def _clean(*a, **k):
+        return subprocess.CompletedProcess(args=a, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _clean)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" not in result
+    assert result["findings"] == []
+
+
 # ── JSONL parsing ──────────────────────────────────────────────────────────────
 
 def test_run_parses_jsonl_findings(monkeypatch) -> None:

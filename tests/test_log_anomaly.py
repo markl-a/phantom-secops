@@ -16,6 +16,16 @@ from scenarios.run_kill_chain import (  # type: ignore[import-not-found]
     _blue_log_anomaly,
     _blue_threat_correlate,
 )
+from tools.log_anomaly import scan_log_lines  # type: ignore[import-not-found]
+
+
+def test_scan_log_lines_detects_plus_encoded_sqli(tmp_path) -> None:
+    # `+`=space form-encoding must decode like %20 (unquote_plus, not unquote),
+    # else `?id=1+or+1=1` evades the whitespace-bearing sqli pattern.
+    log = tmp_path / "a.log"
+    log.write_text("9.9.9.9 - - GET /rest?id=1+or+1=1\n", encoding="utf-8")
+    alerts = scan_log_lines(log, asset="juice-shop")
+    assert any(a["category"] == "sqli" for a in alerts)
 
 
 def test_log_anomaly_emits_alerts_from_canned_log() -> None:

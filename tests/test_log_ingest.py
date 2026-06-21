@@ -135,3 +135,17 @@ def test_scan_window_plain_text_attack_still_detected(monkeypatch, tmp_path):
     )
     result = log_ingest.scan_window()
     assert result["alerts_emitted"] == 1
+
+
+def test_scan_window_detects_plus_encoded_sqli(monkeypatch, tmp_path):
+    # `+`=space is the standard application/x-www-form-urlencoded evasion. plain
+    # unquote leaves `+` literal, so the whitespace-bearing sqli pattern misses
+    # `id=1+or+1=1`; only unquote_plus reconstructs `1 or 1=1`. Regression guard.
+    log_dir, alerts_file = _redirect(monkeypatch, tmp_path)
+    (log_dir / "plus.log").write_text(
+        "9.9.9.9 - - GET /rest/products?id=1+or+1=1\n", encoding="utf-8",
+    )
+    result = log_ingest.scan_window()
+    assert result["alerts_emitted"] == 1
+    a = json.loads(alerts_file.read_text(encoding="utf-8").strip())
+    assert a["category"] == "sqli"

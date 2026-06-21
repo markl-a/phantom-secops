@@ -59,16 +59,16 @@ def run(
         return {"error": f"invalid request_timeout_s {request_timeout_s!r}; expected an integer", "target": target_url}
     request_timeout_s = max(1, min(request_timeout_s, 60))
 
-    # nuclei JSONL output (-jsonl) — one finding per line.
+    # nuclei JSONL output (-jsonl) — one finding per line. nuclei is pre-baked
+    # into the attacker image (see Dockerfile.attacker), so we invoke it directly
+    # — no runtime `go install` fallback, which the image has no Go toolchain for
+    # anyway and whose `|| true` would silently mask a missing binary as a clean
+    # "0 findings" scan (the exact false-green this tool exists to avoid).
     cmd = [
         "docker", "exec", ATTACKER_CONTAINER,
         "bash", "-c",
-        # Note: 'nuclei' may not be preinstalled in the kali base; install on
-        # first run or pre-bake the image. For the demo, fall back gracefully.
-        f"command -v nuclei >/dev/null 2>&1 || "
-        f"go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest >/dev/null 2>&1 || true; "
         f"nuclei -u {shlex.quote(target_url)} -severity {shlex.quote(severity)} "
-        f"-jsonl -silent -timeout {request_timeout_s} 2>/dev/null",
+        f"-jsonl -silent -timeout {request_timeout_s}",
     ]
 
     try:
@@ -79,6 +79,17 @@ def run(
         # docker binary missing / not on PATH (the offline case) — degrade to a
         # structured error so the kill-chain keeps running rather than crashing.
         return {"error": f"could not launch docker: {exc}", "target": target_url}
+
+    # A missing nuclei binary (or a docker/exec failure) produces no stdout and a
+    # non-zero exit. Surface it as an error rather than returning empty findings,
+    # which would read as a clean scan. nuclei exits 0 on a successful scan even
+    # with zero matches, so this only trips on a genuine failure to run.
+    if result.returncode != 0 and not result.stdout.strip():
+        return {
+            "error": f"nuclei did not run (exit {result.returncode}): "
+                     f"{result.stderr.strip()[:300] or 'no output'}",
+            "target": target_url,
+        }
 
     findings: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
