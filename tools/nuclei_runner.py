@@ -20,15 +20,25 @@ ATTACKER_CONTAINER = "secops-attacker"
 LAB_HOSTS = ("juice-shop", "dvwa", "dvwa-db", "metasploitable", "attacker")
 
 
-def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: int = 90) -> dict[str, Any]:
-    """Run nuclei against a lab URL. Returns parsed findings."""
+def run(
+    target_url: str,
+    severity: str = "low,medium,high,critical",
+    timeout_s: int = 90,
+    request_timeout_s: int = 10,
+) -> dict[str, Any]:
+    """Run nuclei against a lab URL. Returns parsed findings.
+
+    `timeout_s` is the subprocess wall-clock budget (the hard kill). It is NOT
+    the same as nuclei's own `-timeout`, which is the *per-request* connection
+    timeout, controlled separately by `request_timeout_s`.
+    """
     if not _is_lab_url(target_url):
         return {
             "error": f"refusing to scan '{target_url}' — must point at an in-lab host",
             "allowed_hosts": list(LAB_HOSTS),
         }
 
-    # Coerce + clamp timeout so a non-int can't be interpolated raw into the
+    # Coerce + clamp both timeouts so a non-int can't be interpolated raw into the
     # `bash -c` string (defense-in-depth alongside shlex.quote on the other args)
     # and a pathological value can't set an absurd subprocess timeout.
     try:
@@ -36,6 +46,18 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
     except (TypeError, ValueError):
         return {"error": f"invalid timeout_s {timeout_s!r}; expected an integer", "target": target_url}
     timeout_s = max(1, min(timeout_s, 600))
+
+    # nuclei's `-timeout` is the PER-REQUEST connection timeout (default 10s), NOT
+    # the total scan budget. A real end-to-end run exposed the bug of passing the
+    # whole wall-clock budget here: every slow/hanging request then waited for the
+    # full budget, so the scan never finished and got killed mid-catalogue,
+    # reporting a misleading "0 findings". Keep the per-request value small and
+    # independent of the subprocess wall-clock guard above.
+    try:
+        request_timeout_s = int(request_timeout_s)
+    except (TypeError, ValueError):
+        return {"error": f"invalid request_timeout_s {request_timeout_s!r}; expected an integer", "target": target_url}
+    request_timeout_s = max(1, min(request_timeout_s, 60))
 
     # nuclei JSONL output (-jsonl) — one finding per line.
     cmd = [
@@ -46,7 +68,7 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
         f"command -v nuclei >/dev/null 2>&1 || "
         f"go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest >/dev/null 2>&1 || true; "
         f"nuclei -u {shlex.quote(target_url)} -severity {shlex.quote(severity)} "
-        f"-jsonl -silent -timeout {timeout_s} 2>/dev/null",
+        f"-jsonl -silent -timeout {request_timeout_s} 2>/dev/null",
     ]
 
     try:

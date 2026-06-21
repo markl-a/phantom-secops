@@ -34,6 +34,21 @@ REPORTS_DIR = REPO_ROOT / "reports"
 MOCKS_DIR = REPO_ROOT / "lab" / "mocks"
 MOCK_LAB_LOGS = MOCKS_DIR / "lab-logs"
 
+# Live-path nuclei scan profile. Tuned from a real end-to-end run against the
+# Docker lab, which exposed two things a mock run never could:
+#   1. The full template catalogue never finishes in a sane budget against a
+#      live app (>5 min, killed mid-scan → a misleading "0 findings").
+#   2. An info-severity scan of an SPA floods ~58k false positives — juice-shop
+#      returns HTTP 200 + the same index.html for *any* path, so every
+#      path-existence template "matches".
+# Scoping to high,critical gives a bounded (~1 min), high-signal, low-false-
+# positive scan that actually COMPLETES — matching the project's "low false-
+# positives over coverage" principle. Lab apps' logic-level vulns (OWASP
+# challenges) aren't nuclei-fingerprintable, so an honest high,critical result
+# here is legitimately small; richer detection is the IDS/posture pillar's job.
+NUCLEI_SEVERITY = "high,critical"
+NUCLEI_TIMEOUT_S = 180  # runner clamps to <=600; observed completion ~50s
+
 # Simulated per-step durations (seconds) used in --mock mode so the red and blue
 # timelines are meaningful instead of all-zero. Live mode ignores these and uses
 # real wall-clock.
@@ -75,6 +90,16 @@ class Clock:
 
 
 def main() -> int:
+    # Windows consoles default to a legacy code page (cp950 / cp1252) that can't
+    # encode the status glyphs we print (→, ⚠). A live run on Windows otherwise
+    # crashes mid-pipeline with UnicodeEncodeError the moment it hits the DEGRADED
+    # banner. Force UTF-8 on the console streams; harmless no-op elsewhere.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--target", default="juice-shop",
                    help="lab service name (default: juice-shop)")
@@ -150,8 +175,12 @@ def _run_pipeline(
     (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
     event("red", f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
 
-    # blue log-anomaly → alert-triage (DETECTION) — issued before red impact
-    event("blue", "blue-log-anomaly  scanning canned attack log", BLUE_DURATIONS["log-anomaly"])
+    # blue log-anomaly → alert-triage (DETECTION) — issued before red impact.
+    # Honesty: in live mode the blue side reads the REAL collected lab logs (where
+    # the live nmap/nuclei traffic actually shows up), not the canned fixture —
+    # so the label must not claim "canned" when it isn't.
+    log_src = "canned attack log" if args.mock else "live lab logs"
+    event("blue", f"blue-log-anomaly  scanning {log_src}", BLUE_DURATIONS["log-anomaly"])
     alerts = _blue_log_anomaly(mock=args.mock, out_dir=out_dir)
     (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
     event("blue", f"blue-log-anomaly  → {len(alerts)} raw alerts")
@@ -251,7 +280,17 @@ def _run_vuln_scan(
     # ...} dict (no findings) when nuclei/docker is unavailable, so a missing lab
     # degrades to empty findings rather than crashing. `nuclei_run` is injectable
     # for tests.
-    nuclei_run = nuclei_run or nuclei_runner.run
+    #
+    # The default runner gets a bounded, high-signal profile (see NUCLEI_SEVERITY
+    # / NUCLEI_TIMEOUT_S above) so the live scan actually completes instead of
+    # being killed mid-catalogue and reporting a misleading 0 findings. The
+    # profile is bound here (not threaded through `nuclei_run`) so injected test
+    # runners keep their simple (url)-only signature.
+    nuclei_run = nuclei_run or (
+        lambda url: nuclei_runner.run(
+            url, severity=NUCLEI_SEVERITY, timeout_s=NUCLEI_TIMEOUT_S
+        )
+    )
     findings: list[dict[str, Any]] = []
     errors: list[str] = []
     for url in _http_targets(target, recon):

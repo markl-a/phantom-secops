@@ -22,10 +22,15 @@ services:
     # ports:
     #   - "127.0.0.1:3000:3000"   # uncomment to view in browser at localhost:3000
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/rest/admin/application-version"]
+      # The juice-shop image is distroless-style — only the node binary, no shell
+      # or wget. The old wget-based check could never run, so the container
+      # reported "unhealthy" forever and `make lab-up` failed its readiness gate
+      # even though the app was serving fine. Use the node runtime that IS present.
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000/rest/admin/application-version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 60s   # juice-shop is slow to boot; don't flag unhealthy meanwhile
 
   # DVWA — classic PHP/MySQL deliberately vulnerable web app
   dvwa:
@@ -55,21 +60,22 @@ services:
       - MYSQL_PASSWORD=p@ssw0rd
 
   # The "attacker" container that the phantom red-team agents shell into
-  # for Nmap / Nuclei / Nikto runs. Kali base because it ships the tooling.
+  # for Nmap / Nuclei / Nikto runs. Built from Dockerfile.attacker (Kali base)
+  # which pre-bakes nmap + nuclei (pinned) + templates, so the live vuln-scan
+  # path has nuclei available without a fragile runtime `go install`. Using the
+  # raw kali image with an inline apt-get (the old approach) left nuclei absent,
+  # which is why the live nuclei path could never be validated end-to-end (G2).
   attacker:
-    image: kalilinux/kali-rolling:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.attacker
+    image: phantom-secops/attacker:latest
     container_name: secops-attacker
     networks:
       - secops-lab
-    command:
-      - /bin/bash
-      - -c
-      - |
-        apt-get update -qq && \
-        apt-get install -y -qq nmap nikto dnsutils curl wget && \
-        sleep infinity
-    # Use docker exec to run agent tools inside this container.
-    # Keeps attack tooling off your host.
+    # CMD ["sleep", "infinity"] comes from the Dockerfile; keeps the container
+    # alive so `docker exec` works for the tool wrappers. Attack tooling stays
+    # off the host by design.
 
   # Lightweight log collector for blue-team agents to ingest from.
   # Tails container logs into a file the log-anomaly agent can read.
