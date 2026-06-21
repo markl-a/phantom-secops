@@ -94,6 +94,31 @@ def test_run_errors_when_nuclei_binary_missing(monkeypatch) -> None:
     assert not result.get("findings")
 
 
+def test_run_timeout_preserves_partial_findings(monkeypatch) -> None:
+    """nuclei streams JSONL as it scans; a run killed at the wall-clock budget
+    may already have real findings in exc.stdout. The timeout path must surface
+    them rather than discarding them as a misleading empty result."""
+    partial = '{"template-id":"CVE-2021-1","info":{"name":"x","severity":"high"}}\n'
+
+    def _timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="nuclei", timeout=120, output=partial)
+
+    monkeypatch.setattr(subprocess, "run", _timeout)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" in result and "timeout" in result["error"].lower()
+    assert result.get("findings") and result["findings"][0]["id"] == "CVE-2021-1"
+
+
+def test_run_timeout_without_partial_output_has_no_findings(monkeypatch) -> None:
+    def _timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="nuclei", timeout=120)  # no output
+
+    monkeypatch.setattr(subprocess, "run", _timeout)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" in result
+    assert not result.get("findings")
+
+
 def test_run_zero_findings_clean_scan_is_not_an_error(monkeypatch) -> None:
     """A successful scan that legitimately matched nothing exits 0 with empty
     stdout — it must return findings=[] WITHOUT an error, else every clean scan

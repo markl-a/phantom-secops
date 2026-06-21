@@ -19,6 +19,21 @@ from scenarios.run_kill_chain import (  # type: ignore[import-not-found]
 from tools.log_anomaly import scan_log_lines  # type: ignore[import-not-found]
 
 
+def test_dedupe_alerts_collapses_cross_matcher_duplicates() -> None:
+    # Same request flagged by both matchers (overlapping categories + files in
+    # live mode) must collapse to one, so triage doesn't false-escalate to P1 on
+    # a doubled count — but a genuinely distinct line of the same category from
+    # the same IP must survive.
+    from scenarios.run_kill_chain import _dedupe_alerts
+
+    a = {"source_ip": "1.1.1.1", "category": "sqli", "asset": "x", "ts": "t",
+         "evidence": "GET /?q=union select", "severity_hint": "high"}
+    a_dup = dict(a)                       # same line via the other matcher
+    a_other = {**a, "evidence": "GET /?q=or 1=1"}  # different line, same category
+    out = _dedupe_alerts([a, a_dup, a_other])
+    assert len(out) == 2
+
+
 def test_scan_log_lines_detects_plus_encoded_sqli(tmp_path) -> None:
     # `+`=space form-encoding must decode like %20 (unquote_plus, not unquote),
     # else `?id=1+or+1=1` evades the whitespace-bearing sqli pattern.

@@ -6,6 +6,7 @@ wiring is tested without docker; the actual live run stays gated on the lab.
 
 from __future__ import annotations
 
+import scenarios.run_kill_chain as rk
 from scenarios.run_kill_chain import _http_targets, _run_vuln_scan
 
 
@@ -53,3 +54,18 @@ def test_run_vuln_scan_live_tolerates_runner_error():
 def test_run_vuln_scan_mock_reads_canned_fixture():
     out = _run_vuln_scan("juice-shop", {}, mock=True)
     assert "findings" in out and len(out["findings"]) > 0
+
+
+def test_run_vuln_scan_threads_severity_to_default_runner(monkeypatch):
+    """--severity must reach the real nuclei runner so a target with lower-
+    severity fingerprintable issues (e.g. dvwa) isn't forced to the default."""
+    captured = {}
+
+    def _capture(url, **kw):
+        captured.update(kw)
+        return {"target": url, "findings": []}
+
+    monkeypatch.setattr(rk.nuclei_runner, "run", _capture)
+    recon = {"open_ports": [{"port": 3000, "service": "http"}]}
+    _run_vuln_scan("juice-shop", recon, mock=False, severity="medium,high,critical")
+    assert captured.get("severity") == "medium,high,critical"
