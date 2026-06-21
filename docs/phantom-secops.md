@@ -2,7 +2,7 @@
 
 > 本檔為 phantom-secops 唯一主文件;設計／決策／訪談腳本／OSS 調查的英文細節與舊版見 `docs/_archive/`。
 > 倫理憲章獨立保留於 [`/ETHICS.md`](../ETHICS.md)(法律界線單一真相來源,從本檔連結)。
-> 對應狀態:階段 *Public Alpha*、**220 passing tests**、8 個引擎模組、7 個 MCP server、2 大支柱(紅藍 SOC 展示 + 端點自我健檢)。每個「已出貨」項都對應真實 commit。**G2(live nmap+nuclei 對 Docker lab 端到端)已於 2026-06-21 驗證通過**(見下方狀態表)。
+> 對應狀態:階段 *Public Alpha*、**249 passing tests**、8 個引擎模組、7 個 MCP server + 1 個 kill-chain façade、2 大支柱(紅藍 SOC 展示 + 端點自我健檢)。每個「已出貨」項都對應真實 commit。**G2(live nmap+nuclei 對 Docker lab 端到端)已於 2026-06-21 驗證通過**;**M1(kill-chain 由 phantom-mesh 代理迴圈驅動,對拍直驅 orchestrator)已於 2026-06-21 完成**(見下方狀態表)。
 
 ## 目錄
 - [定位與護城河](#定位與護城河)
@@ -81,7 +81,7 @@ powershell -NoProfile -Command "Write-Output 'demo: Invoke-Mimikatz sekurlsa::lo
 ### 驗證
 
 ```bash
-python -m pytest -q   # 全綠(202 passing),全經可注入 runner,測試中無真實掃描
+python -m pytest -q   # 全綠(249 passing),全經可注入 runner,測試中無真實掃描
 ```
 
 涵蓋 matcher / parser / 優先排序 / Sigma 引擎 / elevation 與 encoding edge case。CI workflow 在 `.github/workflows/ci.yml`。
@@ -136,6 +136,7 @@ flowchart LR
 | 項目 | 具體內容 | 對應 commit / 證據 |
 |---|---|---|
 | 紅藍 mock kill-chain | 確定性 mock kill-chain(`make demo-mock`),紅藍兩條並行時鐘,<1s、無 Docker、無 API key | `run_kill_chain.py` |
+| **M1:代理迴圈驅動 kill-chain** | 同一條 kill-chain 改由 **phantom-mesh 代理迴圈**驅動(`make demo-mock-mesh` / `--driver=mesh`):Cerebras agent 依序呼叫 `secops_mcp` façade 的 recon→vuln_scan→detect→respond 四工具。紅藍步驟邏輯抽到 `phantom_secops/killchain.py` 單一真相,直驅與代理驅動共用 → **對拍測試**證明 reports/MTTD 與直驅 byte-一致(僅差時間戳)。已在 phantom 0.6.0-rc.1 + Cerebras gpt-oss-120b 實機驗證(MTTD=15s、defender-win) | `secops_mcp/` `phantom_secops/killchain.py` `secops-demo.toml`;`tests/test_demo_mock_parity.py` |
 | 真實 MTTD | 雙時鐘 + 模擬 per-step 時長取代早先的 `0.0s`;mock 顯示 **MTTD 15s、提早 35s 偵測**,mock 模式誠實標 `simulated`,雙向誠實(防守贏/攻擊贏) | mock 兩時鐘模型 |
 | 機器可讀指標 | 真實 run 寫 `summary.json`(MTTD / outcome / detect_margin / time_to_impact + 排序時間軸) | `aa8d67c` `833919c` |
 | log_ingest 真接線 | `log_ingest.scan_window` 真正接入 orchestrator blue path(原為死碼),journalled 並併入 triage/correlate | `b937196` `b4d6855` |
@@ -147,7 +148,7 @@ flowchart LR
 | x-phantom 能力模型 | 每工具 `classification` / `capabilities` / `read_only` 中繼資料 —— per-agent 政策執行的掛鉤;每工具廣告唯讀 + 自我/實驗室作用域 | MCP wrapper |
 | 資安硬化 | `eval()`→ 安全 AST 布林評估器(關 DoS/escape)、nmap shell-injection 修補、nuclei timeout 夾擠、IDS 條件長度上界(捕捉 RecursionError/MemoryError)、nuclei lab-gate 子字串繞過修為精確 hostname 比對;cp950 Windows encoding robustness;honest `unknown`(需 admin 的檢查回 `unknown` 不假 `fail`) | `d66bbb9` `9355710` `5ad9a81` `eb70350` `284c0c7` |
 
-> 目前:**220 passing tests**、8 個引擎、7 個 MCP server、2 大支柱。
+> 目前:**249 passing tests**、8 個引擎、7 個 MCP server + 1 個 kill-chain façade(`secops_mcp/`)、2 大支柱。
 
 ### ✅ G2 已關閉 — live 端到端已驗證(2026-06-21)
 
@@ -171,7 +172,8 @@ flowchart LR
 
 | 目標 | 具體項 | 在哪做 | 風險 / 前置 |
 |---|---|---|---|
-| 👤 **把 kill-chain 跑進 phantom-mesh 代理** | 今日由確定性 Python orchestrator(`scenarios/run_kill_chain.py`)驅動;改由代理迴圈驅動,**外包 governor + 手機核可**(設計見 `docs/_archive/L2-INTEGRATION-PLAN.md`;其 `secops_mcp/` façade **尚未建**) | `orchestrator node (Win)` + `claude` 編排;`codex` 寫 façade | 👤 需確認治理界線;前置 = G2 的 live 路徑可信 |
+| ✅ **把 kill-chain 跑進 phantom-mesh 代理(M1)** | **已完成**:`secops_mcp/` façade 建好,kill-chain 改由代理迴圈驅動(`--driver=mesh`),對拍直驅 orchestrator;紅藍步驟抽到 `phantom_secops/killchain.py` 單一真相。**尚未做**的是治理面(governor + 手機核可)→ 見 M2 | `secops_mcp/` `secops-demo.toml` | ✅ 完成於 2026-06-21 |
+| 👤 **受治理代理迴圈(M2)** | 在 M1 代理迴圈之上接 phantom-mesh **governor + 手機核可**:高風險步驟(如 live 掃描)需核可才放行(設計見 `docs/_archive/L2-INTEGRATION-PLAN.md`) | `orchestrator node (Win)` + `claude` 編排 | 👤 需確認治理界線;前置 = M1(已達成) |
 | 用 `x-phantom` 真正擋工具 | blue 代理被拒用 red 工具(能力模型從「廣告」變「強制」) | `orchestrator node (Win)` + `codex`;`opencode` 對讀 MCP 中繼資料 | MCP 本身是攻擊面(工具下毒/越權),強制需可靠 |
 | LLM-judge / triage 層 | 在 fused 發現上加信心分數 + 誤報過濾 judge(對齊 Semgrep Assistant / Corgea「引擎找事實、LLM 分級」);`posture_fusion` 確定性核心保持不變 | `orchestrator node (Win)` + `claude` 設計 prompt;`codex` 實作;`agy`/`opencode` 雙閘 | 須守住「確定性脊椎」不被 LLM 取代 |
 | 視覺化 | mock 跑出 HTML 報告 + 時間軸(供圖表消費者) | `a Windows node` 或 `orchestrator node (Win)` + `codex` | 低;純展示層 |

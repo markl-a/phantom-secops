@@ -12,7 +12,8 @@
 ## 起點狀態
 - ✅ **Phase 0(G2)已關閉** — live `nmap`+`nuclei` 端到端驗證(~79s 乾淨 run),229 tests,main `e8f1539`。
 - 基礎設施齊備:8 引擎、7 MCP server(`phantom_secops/mcp/`)、x-phantom 能力中繼資料(目前是「廣告」非「強制」)、agent loop(`secops-agent.toml`,Cerebras `gpt-oss-120b` 主 + groq/gemini fallback,`max_tool_calls=6`)已 e2e 驗證。
-- 缺口:`secops_mcp/` façade **尚未建**;phantom-mesh `core/src/mcp_client.rs` 的 Rust x-phantom 強制器**尚未實作**。
+- ✅ **M1 已完成(2026-06-21)** — `secops_mcp/` façade 建好,kill-chain 由 phantom-mesh 代理迴圈驅動(`--driver=mesh`),對拍直驅 orchestrator(實機驗證 + CI 對拍綠)。
+- 缺口:phantom-mesh `core/src/mcp_client.rs` 的 Rust x-phantom 強制器**尚未實作**(M4);治理面 governor + 手機核可**尚未接**(M2)。
 
 ## 依賴與序列
 ```
@@ -25,17 +26,19 @@ M1 façade + agent-loop  ──►  M2 governance(governor + 手機核可 + x-ph
 
 ---
 
-## M1 — Phase 1a:façade + 讓 kill-chain 由 agent loop 驅動  ⬜ 🔴
+## M1 — Phase 1a:façade + 讓 kill-chain 由 agent loop 驅動  ✅ 🔴 (完成 2026-06-21)
 **目的**:把頭號展示從確定性 Python orchestrator 升級為真·代理迴圈 —— Phase 1 前置,也是最強 A 故事素材。
 
 **任務**
-- [ ] 建 `secops_mcp/` façade:把 `scenarios/run_kill_chain.py` 的紅藍步驟暴露成 agent 可呼叫的工具序列(設計參考 `docs/_archive/L2-INTEGRATION-PLAN.md`)。
-- [ ] 用 `secops-agent.toml` 的 Cerebras agent loop 驅動同一條 kill-chain。
-- [ ] **對拍測試(parity)**:agent-driven 輸出的 reports / `summary.json` / MTTD 與 Python orchestrator 結構與指標一致(容許敘事差異)。
+- [x] 建 `secops_mcp/` façade:`state.py`(跨回合 JSON 狀態)+ `steps.py`(recon/vuln_scan/detect/respond 四 composite 步驟,委派 `phantom_secops/killchain.py`)+ `server.py`(`mcp.server.Server` + `xphantom_metadata`)。
+- [x] 紅藍步驟抽到 `phantom_secops/killchain.py` 單一真相,直驅(`scenarios/run_kill_chain.py`)與代理驅動共用 → parity 結構性成立。
+- [x] `secops-demo.toml` 的 Cerebras agent loop 驅動同一條 kill-chain(`--driver=mesh`,`max_tool_calls=6`)。
+- [x] **對拍測試(parity)**:`tests/test_demo_mock_parity.py` 斷言 timeline/recon/vuln byte-一致、MTTD/summary 指標相等、reports/triage/correlation 容許時間戳差異後相等;drift guard 拒絕亂序呼叫;`has_runnable_poc` 不變式穿過 façade。
 
-**退出條件**:`phantom exec` 跑出與 mock orchestrator 等價的紅藍報告 + MTTD;CI 對拍測試綠。
-**風險/前置**:provider 配額(`max_tool_calls=6` 防迴圈);tool-call 漂移 → 用結構化 schema 收斂。
-**A 產物**:asciinema / 短片「LLM 代理自己跑完一條 kill-chain」。
+**退出條件**:✅ `phantom exec`(0.6.0-rc.1 + Cerebras gpt-oss-120b)跑出 MTTD=15s / defender-win,reports 與 `make demo-mock` byte-一致(僅差時間戳);CI 對拍測試綠(249 tests)。
+**風險/前置**:provider 配額(`max_tool_calls=6` 防迴圈,已生效);tool-call 漂移 → `StepOrderError` 回 error JSON 讓 agent 自我收斂(已驗證 agent 會重試前置工具)。
+**踩到的坑(已記錄於 config 註解)**:phantom 0.6.0 **不展開** `[[mcp_servers]].env` 內的 `${VAR}`(會傳字面字串),但**會繼承父行程環境** → 由 `--driver=mesh` 設一次 env,server 繼承。
+**A 產物**:asciinema / 短片「LLM 代理自己跑完一條 kill-chain」(待錄)。
 **charter**:差異化substance;不踩自主紅線(只跑既有唯讀工具)。
 
 ## M2 — Phase 1b:受治理代理迴圈(governor + 手機核可 + x-phantom 廣告→強制)  ⬜ 🔴 👤
