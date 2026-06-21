@@ -44,6 +44,22 @@ def test_run_vuln_scan_live_aggregates_nuclei_findings():
     assert out["findings"][0]["id"] == "tpl-1"
 
 
+def test_run_vuln_scan_scans_all_endpoints_in_order():
+    # Multiple HTTP endpoints are scanned concurrently but aggregated in input
+    # order (map preserves order), so output stays deterministic despite threads.
+    recon = {"open_ports": [
+        {"port": 80, "service": "http"},
+        {"port": 8080, "service": "http"},
+    ]}
+
+    def fake(url):
+        return {"target": url, "findings": [{"id": f"f-{url}", "severity": "high"}]}
+
+    out = _run_vuln_scan("dvwa", recon, mock=False, nuclei_run=fake)
+    ids = [f["id"] for f in out["findings"]]
+    assert ids == ["f-http://dvwa:80", "f-http://dvwa:8080"]
+
+
 def test_run_vuln_scan_live_tolerates_runner_error():
     recon = {"open_ports": [{"port": 3000, "service": "http"}]}
     out = _run_vuln_scan("juice-shop", recon, mock=False,

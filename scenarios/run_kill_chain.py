@@ -17,6 +17,7 @@ demo fast and reproducible.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sys
 import time
@@ -313,8 +314,14 @@ def _run_vuln_scan(
     )
     findings: list[dict[str, Any]] = []
     errors: list[str] = []
-    for url in _http_targets(target, recon):
-        result = nuclei_run(url)
+    urls = _http_targets(target, recon)
+    # Scan endpoints concurrently: each nuclei_run is a blocking subprocess, so a
+    # small thread pool overlaps their wall-clock instead of summing N serial
+    # scans (each bounded by NUCLEI_TIMEOUT_S). map() preserves input order, so
+    # aggregation stays deterministic.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(urls), 4)) as ex:
+        results = list(ex.map(nuclei_run, urls))
+    for url, result in zip(urls, results):
         # A runner that couldn't run (docker/nuclei missing) returns an {"error":
         # ...} dict with no findings. Record it so the caller can report the scan
         # as DEGRADED instead of fake-greening a clean "0 findings" result.

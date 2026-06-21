@@ -12,9 +12,14 @@ networks:
 
 services:
 
-  # OWASP Juice Shop — modern web app with OWASP Top 10 vulns
+  # OWASP Juice Shop — modern web app with OWASP Top 10 vulns.
+  # Pinned by digest (the tag is :latest) so the distroless image layout the
+  # healthcheck depends on — node at /nodejs/bin/node — can't shift under a
+  # silent upstream rebuild and reintroduce "unhealthy forever". Bump
+  # deliberately: `docker pull bkimminich/juice-shop:latest`, then copy the new
+  # digest from `docker inspect --format '{{index .RepoDigests 0}}'`.
   juice-shop:
-    image: bkimminich/juice-shop:latest
+    image: bkimminich/juice-shop:latest@sha256:5d572029141b32e065edefc9b09ca88567296ff7134ebe3181ab7ac9e9ed4056
     container_name: secops-juice-shop
     restart: unless-stopped
     networks:
