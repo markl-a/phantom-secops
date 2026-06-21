@@ -2,7 +2,7 @@
 
 > 本檔為 phantom-secops 唯一主文件;設計／決策／訪談腳本／OSS 調查的英文細節與舊版見 `docs/_archive/`。
 > 倫理憲章獨立保留於 [`/ETHICS.md`](../ETHICS.md)(法律界線單一真相來源,從本檔連結)。
-> 對應狀態:`main` @ `9b5376d` — 階段 *Public Alpha*、**202 passing tests**、8 個引擎模組、7 個 MCP server、2 大支柱(紅藍 SOC 展示 + 端點自我健檢)。每個「已出貨」項都對應 `main` 上的真實 commit。
+> 對應狀態:階段 *Public Alpha*、**220 passing tests**、8 個引擎模組、7 個 MCP server、2 大支柱(紅藍 SOC 展示 + 端點自我健檢)。每個「已出貨」項都對應真實 commit。**G2(live nmap+nuclei 對 Docker lab 端到端)已於 2026-06-21 驗證通過**(見下方狀態表)。
 
 ## 目錄
 - [定位與護城河](#定位與護城河)
@@ -145,14 +145,25 @@ flowchart LR
 | x-phantom 能力模型 | 每工具 `classification` / `capabilities` / `read_only` 中繼資料 —— per-agent 政策執行的掛鉤;每工具廣告唯讀 + 自我/實驗室作用域 | MCP wrapper |
 | 資安硬化 | `eval()`→ 安全 AST 布林評估器(關 DoS/escape)、nmap shell-injection 修補、nuclei timeout 夾擠、IDS 條件長度上界(捕捉 RecursionError/MemoryError)、nuclei lab-gate 子字串繞過修為精確 hostname 比對;cp950 Windows encoding robustness;honest `unknown`(需 admin 的檢查回 `unknown` 不假 `fail`) | `d66bbb9` `9355710` `5ad9a81` `eb70350` `284c0c7` |
 
-> 目前:**202 passing tests**(commit `833919c`)、8 個引擎、7 個 MCP server、2 大支柱。
+> 目前:**220 passing tests**、8 個引擎、7 個 MCP server、2 大支柱。
 
-### 🚧 進行中 — 可信度(現在)
+### ✅ G2 已關閉 — live 端到端已驗證(2026-06-21)
 
-| 目標 | 具體項 | 在哪做 | 風險 / 前置 |
-|---|---|---|---|
-| 🔴🧪 **關 G2:讓頭號展示是真的** | live `nmap` recon + 逐端點 `nuclei` vuln-scan 對 Docker lab **端到端**驗證(程式已接,尚未驗) | `orchestrator node (Win)`(有 Docker/WSL)跑 lab;`claude` 編排 + `codex` 修接線缺口;`agy` 第二意見 | 🧪 需 `make lab-up`;nuclei 首跑在 lab 容器內自安裝。**深度先於廣度** |
-| 維持唯讀不變式 | 在測試中斷言 `has_runnable_poc == false` 為永久不變式 | `orchestrator node (Win)` + `codex` 寫測試 | 低;純測試 |
+`make lab-up && python scenarios/run_kill_chain.py --target juice-shop` 對 Docker lab 跑出**乾淨、非-degraded 的 live run**(總時 ~79s:真實 `nmap` recon 抓到 port 3000 + 真實 `nuclei` 逐端點掃描跑完),藍隊並從**真實收集到的 lab log** 偵測到該掃描流量(`scanner_ua` 命中 nmap/nuclei)。修掉了一批只有真實環境才會現形的 bug:
+
+| 真實環境揭露的問題 | 修法 |
+|---|---|
+| `docker-compose.yml` 的 attacker 服務從未引用 `Dockerfile.attacker` → 容器內**沒有 nuclei**(舊 inline `apt-get` 只裝 nmap),live nuclei 路徑從來跑不成 | compose attacker 改為 `build: Dockerfile.attacker`(預烤 nuclei 3.3.5 + templates) |
+| `nuclei_runner` 把 nuclei 的 `-timeout`(**每請求**連線逾時)誤設為整體 wall-clock 預算 → 每個慢請求 hang 滿整個預算,掃描永遠跑不完、被中途砍掉誤報 0 findings | 拆出獨立的 `request_timeout_s`(預設 10s),`timeout_s` 僅作 subprocess wall-clock 上限 |
+| 天真的全目錄/`info` 掃描對 juice-shop(SPA 對任何路徑都回 200)產生 ~58k 假陽性,違反原則 4 | live 路徑收斂到 `severity=high,critical`(有界 ~1 分鐘、高訊號、低假陽性;`--severity` 可按 target 覆寫) |
+| DEGRADED banner 的 `⚠` 在 Windows cp950 console 崩潰(UnicodeEncodeError) | 模組載入時把 stdout/stderr reconfigure 為 UTF-8(import 時,涵蓋直接呼叫 pipeline 的測試/入口) |
+| juice-shop 是 distroless node 映像(無 sh/wget)→ wget 健康檢查永遠失敗,`make lab-up` 誤報逾時 | 健康檢查改用映像內的 `node` runtime + `start_period`;映像以 digest pin 防止上游漂移 |
+
+> 誠實註記:這些 lab app 的漏洞是**應用邏輯型(OWASP 挑戰)**,非 nuclei 可指紋偵測的 CVE,所以 high/critical 誠實地是 0 findings;豐富的偵測訊號來自藍隊(IDS/log-anomaly)與端點 posture 支柱,不是 nuclei。
+
+| 目標 | 具體項 | 風險 / 前置 |
+|---|---|---|
+| 維持唯讀不變式 | 在測試中斷言 `has_runnable_poc == false` 為永久不變式 | 低;純測試 |
 
 ### 📅 近期 — 受治理的代理迴圈(Pillar 1 L2)
 

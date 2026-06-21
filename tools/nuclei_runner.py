@@ -20,46 +20,110 @@ ATTACKER_CONTAINER = "secops-attacker"
 LAB_HOSTS = ("juice-shop", "dvwa", "dvwa-db", "metasploitable", "attacker")
 
 
-def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: int = 90) -> dict[str, Any]:
-    """Run nuclei against a lab URL. Returns parsed findings."""
+def run(
+    target_url: str,
+    severity: str = "low,medium,high,critical",
+    timeout_s: int = 90,
+    request_timeout_s: int = 10,
+) -> dict[str, Any]:
+    """Run nuclei against a lab URL. Returns parsed findings.
+
+    `timeout_s` is the subprocess wall-clock budget (the hard kill). It is NOT
+    the same as nuclei's own `-timeout`, which is the *per-request* connection
+    timeout, controlled separately by `request_timeout_s`.
+    """
     if not _is_lab_url(target_url):
         return {
             "error": f"refusing to scan '{target_url}' — must point at an in-lab host",
             "allowed_hosts": list(LAB_HOSTS),
         }
 
-    # Coerce + clamp timeout so a non-int can't be interpolated raw into the
+    # Coerce + clamp both timeouts so a non-int can't be interpolated raw into the
     # `bash -c` string (defense-in-depth alongside shlex.quote on the other args)
     # and a pathological value can't set an absurd subprocess timeout.
-    try:
-        timeout_s = int(timeout_s)
-    except (TypeError, ValueError):
-        return {"error": f"invalid timeout_s {timeout_s!r}; expected an integer", "target": target_url}
-    timeout_s = max(1, min(timeout_s, 600))
+    #
+    # `timeout_s` is the subprocess wall-clock guard. `request_timeout_s` is
+    # nuclei's PER-REQUEST connection timeout (default 10s) — a real end-to-end
+    # run exposed the bug of passing the whole wall-clock budget here: every
+    # slow/hanging request then waited for the full budget, so the scan never
+    # finished and got killed mid-catalogue, reporting a misleading "0 findings".
+    timeout_s, err = _coerce_int(timeout_s, "timeout_s", 1, 600)
+    if err:
+        return {"error": err, "target": target_url}
+    request_timeout_s, err = _coerce_int(request_timeout_s, "request_timeout_s", 1, 60)
+    if err:
+        return {"error": err, "target": target_url}
 
-    # nuclei JSONL output (-jsonl) — one finding per line.
+    # nuclei JSONL output (-jsonl) — one finding per line. nuclei is pre-baked
+    # into the attacker image (see Dockerfile.attacker), so we invoke it directly
+    # — no runtime `go install` fallback, which the image has no Go toolchain for
+    # anyway and whose `|| true` would silently mask a missing binary as a clean
+    # "0 findings" scan (the exact false-green this tool exists to avoid).
     cmd = [
         "docker", "exec", ATTACKER_CONTAINER,
         "bash", "-c",
-        # Note: 'nuclei' may not be preinstalled in the kali base; install on
-        # first run or pre-bake the image. For the demo, fall back gracefully.
-        f"command -v nuclei >/dev/null 2>&1 || "
-        f"go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest >/dev/null 2>&1 || true; "
         f"nuclei -u {shlex.quote(target_url)} -severity {shlex.quote(severity)} "
-        f"-jsonl -silent -timeout {timeout_s} 2>/dev/null",
+        f"-jsonl -silent -timeout {request_timeout_s}",
     ]
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s + 30)
-    except subprocess.TimeoutExpired:
-        return {"error": f"nuclei scan exceeded {timeout_s + 30}s timeout", "target": target_url}
+    except subprocess.TimeoutExpired as exc:
+        # Don't discard partial output: nuclei streams JSONL findings as it scans,
+        # so a run killed at the wall-clock budget may already have real findings
+        # in exc.stdout. Surface them alongside the timeout note rather than a
+        # misleading empty result.
+        out: dict[str, Any] = {
+            "error": f"nuclei scan exceeded {timeout_s + 30}s timeout", "target": target_url,
+        }
+        partial = _parse_findings(exc.stdout) if isinstance(exc.stdout, str) else []
+        if partial:
+            out["findings"] = partial
+        return out
     except OSError as exc:
         # docker binary missing / not on PATH (the offline case) — degrade to a
         # structured error so the kill-chain keeps running rather than crashing.
         return {"error": f"could not launch docker: {exc}", "target": target_url}
 
+    # A missing nuclei binary (or a docker/exec failure) produces no stdout and a
+    # non-zero exit. Surface it as an error rather than returning empty findings,
+    # which would read as a clean scan. nuclei exits 0 on a successful scan even
+    # with zero matches, so this only trips on a genuine failure to run.
+    if result.returncode != 0 and not result.stdout.strip():
+        return {
+            "error": f"nuclei did not run (exit {result.returncode}): "
+                     f"{result.stderr.strip()[:300] or 'no output'}",
+            "target": target_url,
+        }
+
+    return {
+        "target": target_url,
+        "findings": _parse_findings(result.stdout),
+    }
+
+
+def _coerce_int(value: Any, name: str, lo: int, hi: int) -> tuple[int | None, str | None]:
+    """Coerce `value` to an int clamped to [lo, hi].
+
+    Returns (clamped_int, None) on success or (None, error_message) if `value`
+    isn't int-like — so a non-int can never be interpolated raw into the
+    `bash -c` string. Shared by the two timeout parameters.
+    """
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return None, f"invalid {name} {value!r}; expected an integer"
+    return max(lo, min(v, hi)), None
+
+
+def _parse_findings(stdout: str) -> list[dict[str, Any]]:
+    """Parse nuclei JSONL stdout (one finding per line) into compact findings.
+
+    Tolerant of blank/garbage lines. Reused by both the normal path and the
+    timeout path (which parses whatever nuclei streamed before being killed).
+    """
     findings: list[dict[str, Any]] = []
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -77,11 +141,7 @@ def run(target_url: str, severity: str = "low,medium,high,critical", timeout_s: 
             "tool": "nuclei",
             "raw": json.dumps(finding)[:400],
         })
-
-    return {
-        "target": target_url,
-        "findings": findings,
-    }
+    return findings
 
 
 def _is_lab_url(url: str) -> bool:

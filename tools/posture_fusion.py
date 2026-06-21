@@ -34,6 +34,21 @@ _HOST_ACTIONABLE = {"fail", "warn"}
 _TOOL_ORDER = {"vuln_scan": 0, "ids_scan": 1, "host_audit": 2}
 
 
+def _sev_key(value, default: str) -> str:
+    """Normalise a severity/level/status value to a lookup key string.
+
+    Scanner findings normally carry string severities, but a malformed or
+    externally-sourced finding (e.g. a Trivy JSON quirk) may carry an int, None
+    or other type. The fusion step is the trusted deterministic spine — it must
+    *degrade*, never crash with AttributeError on `.upper()`/`.lower()`. A
+    missing/None/empty value falls back to ``default``; everything else is
+    stringified so the dict lookup simply misses and maps to severity 0.
+    """
+    if value is None or value == "":
+        return default
+    return str(value)
+
+
 @dataclass(frozen=True)
 class Action:
     """One ranked, plain-language remediation item from a single source tool."""
@@ -51,8 +66,8 @@ def _host_actions(host_findings: dict) -> list[Action]:
         status = check.get("status", "")
         if status not in _HOST_ACTIONABLE:
             continue
-        sev = _HOST_SEVERITY.get(check.get("severity", "info"), 0)
-        name = check.get("check", "?")
+        sev = _HOST_SEVERITY.get(_sev_key(check.get("severity"), "info"), 0)
+        name = str(check.get("check", "?"))
         actions.append(
             Action(
                 severity=sev,
@@ -68,9 +83,8 @@ def _host_actions(host_findings: dict) -> list[Action]:
 def _vuln_actions(vuln_findings: dict) -> list[Action]:
     actions: list[Action] = []
     for f in vuln_findings.get("findings", []):
-        raw = f.get("severity") or "UNKNOWN"
-        sev = _VULN_SEVERITY.get(raw.upper(), 0)
-        vid = f.get("id", "?")
+        sev = _VULN_SEVERITY.get(_sev_key(f.get("severity"), "UNKNOWN").upper(), 0)
+        vid = str(f.get("id", "?"))
         pkg = f.get("pkg", "?")
         fixed = f.get("fixed")
         if fixed:
@@ -92,8 +106,8 @@ def _vuln_actions(vuln_findings: dict) -> list[Action]:
 def _ids_actions(ids_alerts: dict) -> list[Action]:
     actions: list[Action] = []
     for a in ids_alerts.get("alerts", []):
-        sev = _IDS_SEVERITY.get(a.get("level", "informational"), 0)
-        title = a.get("title", "?")
+        sev = _IDS_SEVERITY.get(_sev_key(a.get("level"), "informational"), 0)
+        title = str(a.get("title", "?"))
         actions.append(
             Action(
                 severity=sev,

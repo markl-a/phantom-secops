@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote_plus
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "reports" / "lab-logs"
 ALERTS_FILE = LOG_DIR / "alerts.jsonl"
@@ -56,8 +57,16 @@ def scan_window(
             continue
 
         for line in recent_lines:
+            # URL-decode before matching so percent-encoded payloads (e.g.
+            # %3Cscript%3E, union%20select, %2e%2e%2f) are detected. Without this
+            # an attacker trivially evades the raw-line patterns by URL-encoding —
+            # the sibling matcher tools.log_anomaly already decodes; this aligns
+            # log_ingest (which the kill-chain blue path runs) with it.
+            # unquote_plus (not unquote) so the form-encoding `+`=space variant
+            # (e.g. `?id=1+or+1=1`) decodes to `1 or 1=1` and is caught too.
+            decoded = unquote_plus(line)
             for category, pattern, severity_hint in PATTERNS:
-                m = pattern.search(line)
+                m = pattern.search(line) or pattern.search(decoded)
                 if not m:
                     continue
                 alerts.append({

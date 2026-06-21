@@ -17,6 +17,7 @@ demo fast and reproducible.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sys
 import time
@@ -33,6 +34,42 @@ from tools import nuclei_runner  # type: ignore[import-not-found]  # noqa: E402
 REPORTS_DIR = REPO_ROOT / "reports"
 MOCKS_DIR = REPO_ROOT / "lab" / "mocks"
 MOCK_LAB_LOGS = MOCKS_DIR / "lab-logs"
+
+# Live-path nuclei scan profile. Tuned from a real end-to-end run against the
+# Docker lab, which exposed two things a mock run never could:
+#   1. The full template catalogue never finishes in a sane budget against a
+#      live app (>5 min, killed mid-scan → a misleading "0 findings").
+#   2. An info-severity scan of an SPA floods ~58k false positives — juice-shop
+#      returns HTTP 200 + the same index.html for *any* path, so every
+#      path-existence template "matches".
+# Scoping to high,critical gives a bounded (~1 min), high-signal, low-false-
+# positive scan that actually COMPLETES — matching the project's "low false-
+# positives over coverage" principle. Lab apps' logic-level vulns (OWASP
+# challenges) aren't nuclei-fingerprintable, so an honest high,critical result
+# here is legitimately small; richer detection is the IDS/posture pillar's job.
+NUCLEI_SEVERITY = "high,critical"
+NUCLEI_TIMEOUT_S = 180  # runner clamps to <=600; observed completion ~50s
+
+
+def _reconfigure_console_utf8() -> None:
+    """Force UTF-8 on the console streams.
+
+    Windows consoles default to a legacy code page (cp950 / cp1252) that can't
+    encode the status glyphs the pipeline prints (→, ⚠), so output crashes with
+    UnicodeEncodeError. This runs at IMPORT time — not just inside main() —
+    because the pipeline functions (`_run_pipeline` / `event`) are imported and
+    called directly by tests and other entrypoints that never go through main();
+    fixing it only in main() would leave those callers crashing on a legacy
+    code page. No-op where reconfigure is unavailable (e.g. captured streams).
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
+
+_reconfigure_console_utf8()
 
 # Simulated per-step durations (seconds) used in --mock mode so the red and blue
 # timelines are meaningful instead of all-zero. Live mode ignores these and uses
@@ -84,6 +121,11 @@ def main() -> int:
                    help="invoke phantom-mesh for LLM-driven report writing "
                         "(requires phantom serve at localhost:7878)")
     p.add_argument("--out", default=None, help="output dir (default: reports/runs/<ts>/)")
+    p.add_argument("--severity", default=NUCLEI_SEVERITY,
+                   help=f"comma-separated nuclei severities for the live vuln-scan "
+                        f"(default: {NUCLEI_SEVERITY}). Widen (e.g. "
+                        f"'medium,high,critical') for targets with nuclei-"
+                        f"fingerprintable lower-severity issues like dvwa.")
     args = p.parse_args()
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M")
@@ -146,12 +188,17 @@ def _run_pipeline(
     event("red", f"red-recon  → {len(recon.get('open_ports', []))} open ports")
 
     event("red", "red-vuln-scan  starts", RED_DURATIONS["vuln-scan"])
-    vuln = _run_vuln_scan(args.target, recon, mock=args.mock)
+    vuln = _run_vuln_scan(args.target, recon, mock=args.mock,
+                          severity=getattr(args, "severity", NUCLEI_SEVERITY))
     (out_dir / "vuln-scan.json").write_text(json.dumps(vuln, indent=2, ensure_ascii=False), encoding="utf-8")
     event("red", f"red-vuln-scan  → {len(vuln.get('findings', []))} findings")
 
-    # blue log-anomaly → alert-triage (DETECTION) — issued before red impact
-    event("blue", "blue-log-anomaly  scanning canned attack log", BLUE_DURATIONS["log-anomaly"])
+    # blue log-anomaly → alert-triage (DETECTION) — issued before red impact.
+    # Honesty: in live mode the blue side reads the REAL collected lab logs (where
+    # the live nmap/nuclei traffic actually shows up), not the canned fixture —
+    # so the label must not claim "canned" when it isn't.
+    log_src = "canned attack log" if args.mock else "live lab logs"
+    event("blue", f"blue-log-anomaly  scanning {log_src}", BLUE_DURATIONS["log-anomaly"])
     alerts = _blue_log_anomaly(mock=args.mock, out_dir=out_dir)
     (out_dir / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts), encoding="utf-8")
     event("blue", f"blue-log-anomaly  → {len(alerts)} raw alerts")
@@ -243,6 +290,7 @@ def _http_targets(target: str, recon: dict[str, Any]) -> list[str]:
 
 def _run_vuln_scan(
     target: str, recon: dict[str, Any], mock: bool, nuclei_run=None,
+    severity: str = NUCLEI_SEVERITY,
 ) -> dict[str, Any]:
     if mock:
         return json.loads((MOCKS_DIR / "vuln-scan-juice-shop.json").read_text(encoding="utf-8"))
@@ -251,11 +299,29 @@ def _run_vuln_scan(
     # ...} dict (no findings) when nuclei/docker is unavailable, so a missing lab
     # degrades to empty findings rather than crashing. `nuclei_run` is injectable
     # for tests.
-    nuclei_run = nuclei_run or nuclei_runner.run
+    #
+    # The default runner gets a bounded, high-signal profile (see NUCLEI_SEVERITY
+    # / NUCLEI_TIMEOUT_S above) so the live scan actually completes instead of
+    # being killed mid-catalogue and reporting a misleading 0 findings. `severity`
+    # is overridable per-run (--severity) so targets with nuclei-fingerprintable
+    # lower-severity issues (e.g. dvwa) aren't forced to the juice-shop default.
+    # The profile is bound here (not threaded through `nuclei_run`) so injected
+    # test runners keep their simple (url)-only signature.
+    nuclei_run = nuclei_run or (
+        lambda url: nuclei_runner.run(
+            url, severity=severity, timeout_s=NUCLEI_TIMEOUT_S
+        )
+    )
     findings: list[dict[str, Any]] = []
     errors: list[str] = []
-    for url in _http_targets(target, recon):
-        result = nuclei_run(url)
+    urls = _http_targets(target, recon)
+    # Scan endpoints concurrently: each nuclei_run is a blocking subprocess, so a
+    # small thread pool overlaps their wall-clock instead of summing N serial
+    # scans (each bounded by NUCLEI_TIMEOUT_S). map() preserves input order, so
+    # aggregation stays deterministic.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(urls), 4)) as ex:
+        results = list(ex.map(nuclei_run, urls))
+    for url, result in zip(urls, results):
         # A runner that couldn't run (docker/nuclei missing) returns an {"error":
         # ...} dict with no findings. Record it so the caller can report the scan
         # as DEGRADED instead of fake-greening a clean "0 findings" result.
@@ -334,7 +400,32 @@ def _blue_log_anomaly(mock: bool, out_dir: Path | None = None) -> list[dict[str,
     log_path = MOCKS_DIR / "attack-log.txt" if mock else REPO_ROOT / "reports/lab-logs/juice-shop.log"
     anomaly_alerts = scan_log_lines(log_path, asset="juice-shop")
 
-    return ingest_alerts + anomaly_alerts
+    return _dedupe_alerts(ingest_alerts + anomaly_alerts)
+
+
+def _dedupe_alerts(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop duplicate alerts while preserving order and distinct lines.
+
+    The two matchers (log_ingest + log_anomaly) have overlapping categories
+    (traversal/sqli/xss/admin_path) and in live mode read overlapping files
+    (juice-shop.log ⊂ LOG_DIR), so the SAME request can be flagged twice. Triage
+    groups by (source_ip, category) and promotes high-severity to P1 at count>=2,
+    so an undeduped double-count can falsely escalate a single request. Key on
+    (source_ip, category, evidence-prefix) so true duplicates collapse but
+    genuinely distinct lines of the same category from one IP still count
+    separately (a real escalation signal). The two matchers store different
+    evidence lengths (300 vs 200) derived from the same raw line, so compare on a
+    200-char prefix.
+    """
+    seen: set[tuple[str, str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for a in alerts:
+        key = (a.get("source_ip", ""), a.get("category", ""), (a.get("evidence") or "")[:200])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(a)
+    return deduped
 
 
 def _blue_alert_triage(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:

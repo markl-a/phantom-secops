@@ -81,6 +81,57 @@ def test_run_handles_timeout(monkeypatch) -> None:
     assert "timeout" in result["error"].lower()
 
 
+def test_run_errors_when_nuclei_binary_missing(monkeypatch) -> None:
+    """A missing nuclei binary (bash exit 127, empty stdout) must surface an
+    error, not a silent clean '0 findings' result that reads as a clean scan."""
+    def _missing(*a, **k):
+        return subprocess.CompletedProcess(
+            args=a, returncode=127, stdout="", stderr="bash: nuclei: command not found")
+
+    monkeypatch.setattr(subprocess, "run", _missing)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" in result
+    assert not result.get("findings")
+
+
+def test_run_timeout_preserves_partial_findings(monkeypatch) -> None:
+    """nuclei streams JSONL as it scans; a run killed at the wall-clock budget
+    may already have real findings in exc.stdout. The timeout path must surface
+    them rather than discarding them as a misleading empty result."""
+    partial = '{"template-id":"CVE-2021-1","info":{"name":"x","severity":"high"}}\n'
+
+    def _timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="nuclei", timeout=120, output=partial)
+
+    monkeypatch.setattr(subprocess, "run", _timeout)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" in result and "timeout" in result["error"].lower()
+    assert result.get("findings") and result["findings"][0]["id"] == "CVE-2021-1"
+
+
+def test_run_timeout_without_partial_output_has_no_findings(monkeypatch) -> None:
+    def _timeout(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="nuclei", timeout=120)  # no output
+
+    monkeypatch.setattr(subprocess, "run", _timeout)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" in result
+    assert not result.get("findings")
+
+
+def test_run_zero_findings_clean_scan_is_not_an_error(monkeypatch) -> None:
+    """A successful scan that legitimately matched nothing exits 0 with empty
+    stdout — it must return findings=[] WITHOUT an error, else every clean scan
+    false-flags as a failure (the inverse of the missing-binary case above)."""
+    def _clean(*a, **k):
+        return subprocess.CompletedProcess(args=a, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _clean)
+    result = nuclei_runner.run("http://juice-shop:3000")
+    assert "error" not in result
+    assert result["findings"] == []
+
+
 # ── JSONL parsing ──────────────────────────────────────────────────────────────
 
 def test_run_parses_jsonl_findings(monkeypatch) -> None:

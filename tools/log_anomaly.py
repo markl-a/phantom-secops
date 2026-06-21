@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
+from urllib.parse import unquote_plus
 
 PATTERNS: list[tuple[str, str, str]] = [
     ("traversal",  r"(\.\./|\.\.\\|/etc/passwd)",                              "high"),
@@ -32,7 +32,9 @@ def scan_log_lines(log_path: Path, max_lines: int = 10000, asset: str = "unknown
     alerts: list[dict[str, Any]] = []
     text = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[:max_lines]
     for line in text:
-        decoded = unquote(line)
+        # unquote_plus so `+`-encoded spaces (form-encoding) decode like %20 —
+        # otherwise `?id=1+or+1=1` evades the whitespace-bearing sqli pattern.
+        decoded = unquote_plus(line)
         for category, pat, sev in PATTERNS:
             if re.search(pat, decoded, re.I):
                 ip_m = re.match(r"^(\d{1,3}(?:\.\d{1,3}){3})", line)

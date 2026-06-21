@@ -6,6 +6,7 @@ wiring is tested without docker; the actual live run stays gated on the lab.
 
 from __future__ import annotations
 
+import scenarios.run_kill_chain as rk
 from scenarios.run_kill_chain import _http_targets, _run_vuln_scan
 
 
@@ -43,6 +44,22 @@ def test_run_vuln_scan_live_aggregates_nuclei_findings():
     assert out["findings"][0]["id"] == "tpl-1"
 
 
+def test_run_vuln_scan_scans_all_endpoints_in_order():
+    # Multiple HTTP endpoints are scanned concurrently but aggregated in input
+    # order (map preserves order), so output stays deterministic despite threads.
+    recon = {"open_ports": [
+        {"port": 80, "service": "http"},
+        {"port": 8080, "service": "http"},
+    ]}
+
+    def fake(url):
+        return {"target": url, "findings": [{"id": f"f-{url}", "severity": "high"}]}
+
+    out = _run_vuln_scan("dvwa", recon, mock=False, nuclei_run=fake)
+    ids = [f["id"] for f in out["findings"]]
+    assert ids == ["f-http://dvwa:80", "f-http://dvwa:8080"]
+
+
 def test_run_vuln_scan_live_tolerates_runner_error():
     recon = {"open_ports": [{"port": 3000, "service": "http"}]}
     out = _run_vuln_scan("juice-shop", recon, mock=False,
@@ -53,3 +70,18 @@ def test_run_vuln_scan_live_tolerates_runner_error():
 def test_run_vuln_scan_mock_reads_canned_fixture():
     out = _run_vuln_scan("juice-shop", {}, mock=True)
     assert "findings" in out and len(out["findings"]) > 0
+
+
+def test_run_vuln_scan_threads_severity_to_default_runner(monkeypatch):
+    """--severity must reach the real nuclei runner so a target with lower-
+    severity fingerprintable issues (e.g. dvwa) isn't forced to the default."""
+    captured = {}
+
+    def _capture(url, **kw):
+        captured.update(kw)
+        return {"target": url, "findings": []}
+
+    monkeypatch.setattr(rk.nuclei_runner, "run", _capture)
+    recon = {"open_ports": [{"port": 3000, "service": "http"}]}
+    _run_vuln_scan("juice-shop", recon, mock=False, severity="medium,high,critical")
+    assert captured.get("severity") == "medium,high,critical"
