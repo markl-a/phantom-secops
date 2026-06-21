@@ -136,7 +136,7 @@ flowchart LR
 | 項目 | 具體內容 | 對應 commit / 證據 |
 |---|---|---|
 | 紅藍 mock kill-chain | 確定性 mock kill-chain(`make demo-mock`),紅藍兩條並行時鐘,<1s、無 Docker、無 API key | `run_kill_chain.py` |
-| **M1:代理迴圈驅動 kill-chain** | 同一條 kill-chain 改由 **phantom-mesh 代理迴圈**驅動(`make demo-mock-mesh` / `--driver=mesh`):Cerebras agent 依序呼叫 `secops_mcp` façade 的 recon→vuln_scan→detect→respond 四工具。紅藍步驟邏輯抽到 `phantom_secops/killchain.py` 單一真相,直驅與代理驅動共用 → **對拍測試**證明 reports/MTTD 與直驅 byte-一致(僅差時間戳)。已在 phantom 0.6.0-rc.1 + Cerebras gpt-oss-120b 實機驗證(MTTD=15s、defender-win) | `secops_mcp/` `phantom_secops/killchain.py` `secops-demo.toml`;`tests/test_demo_mock_parity.py` |
+| **M1:代理迴圈驅動 kill-chain** | 同一條 kill-chain 改由 **phantom-mesh 代理迴圈**驅動(`make demo-mock-mesh` / `--driver=mesh`):Cerebras agent 依序呼叫 `secops_mcp` façade 的 recon→vuln_scan→detect→respond 四工具。紅藍步驟邏輯抽到 `phantom_secops/killchain.py` 單一真相,直驅與代理驅動共用 → **對拍測試**證明 reports/MTTD 與直驅 byte-一致(僅差時間戳)。已在 phantom 0.6.0-rc.1 + Cerebras gpt-oss-120b 實機驗證(MTTD=15s、defender-win;transcript 見 [`docs/demos/m1-agent-loop.md`](demos/m1-agent-loop.md)) | `secops_mcp/` `phantom_secops/killchain.py` `secops-demo.toml`;`tests/test_demo_mock_parity.py` |
 | 真實 MTTD | 雙時鐘 + 模擬 per-step 時長取代早先的 `0.0s`;mock 顯示 **MTTD 15s、提早 35s 偵測**,mock 模式誠實標 `simulated`,雙向誠實(防守贏/攻擊贏) | mock 兩時鐘模型 |
 | 機器可讀指標 | 真實 run 寫 `summary.json`(MTTD / outcome / detect_margin / time_to_impact + 排序時間軸) | `aa8d67c` `833919c` |
 | log_ingest 真接線 | `log_ingest.scan_window` 真正接入 orchestrator blue path(原為死碼),journalled 並併入 triage/correlate | `b937196` `b4d6855` |

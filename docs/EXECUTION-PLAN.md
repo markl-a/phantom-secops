@@ -38,7 +38,7 @@ M1 façade + agent-loop  ──►  M2 governance(governor + 手機核可 + x-ph
 **退出條件**:✅ `phantom exec`(0.6.0-rc.1 + Cerebras gpt-oss-120b)跑出 MTTD=15s / defender-win,reports 與 `make demo-mock` byte-一致(僅差時間戳);CI 對拍測試綠(249 tests)。
 **風險/前置**:provider 配額(`max_tool_calls=6` 防迴圈,已生效);tool-call 漂移 → `StepOrderError` 回 error JSON 讓 agent 自我收斂(已驗證 agent 會重試前置工具)。
 **踩到的坑(已記錄於 config 註解)**:phantom 0.6.0 **不展開** `[[mcp_servers]].env` 內的 `${VAR}`(會傳字面字串),但**會繼承父行程環境** → 由 `--driver=mesh` 設一次 env,server 繼承。
-**A 產物**:asciinema / 短片「LLM 代理自己跑完一條 kill-chain」(待錄)。
+**A 產物**:[`docs/demos/m1-agent-loop.md`](demos/m1-agent-loop.md) —— 實機 transcript「LLM 代理自己依序呼叫四工具跑完一條 kill-chain」+ asciinema 錄製指令。
 **charter**:差異化substance;不踩自主紅線(只跑既有唯讀工具)。
 
 ## M2 — Phase 1b:受治理代理迴圈(governor + 手機核可 + x-phantom 廣告→強制)  ⬜ 🔴 👤
