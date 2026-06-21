@@ -51,6 +51,29 @@ MOCK_LAB_LOGS = MOCKS_DIR / "lab-logs"
 NUCLEI_SEVERITY = "high,critical"
 NUCLEI_TIMEOUT_S = 180  # runner clamps to <=600; observed completion ~50s
 
+# Simulated per-step durations (seconds) used in --mock mode so the red and blue
+# timelines are meaningful instead of all-zero. Live mode ignores these and uses
+# real wall-clock.
+#
+# These live in the shared core (not the direct driver) because the agent-loop
+# façade in secops_mcp/ must advance the SAME per-side clocks by the SAME canned
+# durations to reproduce an identical MTTD — that is the structural basis of the
+# M1 parity guarantee. Importing them from scenarios/ would invert the layering
+# (façade → driver); keeping them here keeps both front-ends pointed at one set.
+#
+# Provenance: these are ILLUSTRATIVE order-of-magnitude operator-time estimates
+# (e.g. recon ≈ an nmap -sV of one host; threat-correlate ≈ an analyst review
+# window), NOT measured benchmarks. They are scenario inputs that make the
+# simulated timeline plausible; the *mechanism* (concurrent clocks, milestone
+# extraction, the MTTD comparison) is what's real and tested — the numbers are
+# not a claim about real detection latency.
+RED_DURATIONS = {
+    "recon": 12.0, "vuln-scan": 30.0, "exploit-suggest": 8.0, "pentest-report": 5.0,
+}
+BLUE_DURATIONS = {
+    "log-anomaly": 8.0, "alert-triage": 7.0, "threat-correlate": 35.0, "incident-report": 5.0,
+}
+
 
 # ─── Red pipeline implementations ────────────────────────────────────────
 

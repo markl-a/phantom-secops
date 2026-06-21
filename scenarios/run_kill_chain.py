@@ -37,7 +37,9 @@ sys.path.insert(0, str(REPO_ROOT))
 # existing tests that monkeypatch `run_kill_chain.nmap_runner.run` keep working;
 # they patch the shared module object, which killchain resolves at call time.
 from phantom_secops.killchain import (  # noqa: E402,F401  (F401: several are re-exports for tests)
+    BLUE_DURATIONS,
     NUCLEI_SEVERITY,
+    RED_DURATIONS,
     _blue_alert_triage,
     _blue_log_anomaly,
     _blue_threat_correlate,
@@ -81,22 +83,9 @@ def _reconfigure_console_utf8() -> None:
 
 _reconfigure_console_utf8()
 
-# Simulated per-step durations (seconds) used in --mock mode so the red and blue
-# timelines are meaningful instead of all-zero. Live mode ignores these and uses
-# real wall-clock.
-#
-# Provenance: these are ILLUSTRATIVE order-of-magnitude operator-time estimates
-# (e.g. recon ≈ an nmap -sV of one host; threat-correlate ≈ an analyst review
-# window), NOT measured benchmarks. They are scenario inputs that make the
-# simulated timeline plausible; the *mechanism* (concurrent clocks, milestone
-# extraction, the MTTD comparison) is what's real and tested — the numbers are
-# not a claim about real detection latency.
-RED_DURATIONS = {
-    "recon": 12.0, "vuln-scan": 30.0, "exploit-suggest": 8.0, "pentest-report": 5.0,
-}
-BLUE_DURATIONS = {
-    "log-anomaly": 8.0, "alert-triage": 7.0, "threat-correlate": 35.0, "incident-report": 5.0,
-}
+# RED_DURATIONS / BLUE_DURATIONS are imported from phantom_secops.killchain (the
+# shared core) so this direct driver and the agent-loop façade advance the same
+# simulated clocks — see the rationale comment there.
 
 
 class Clock:
