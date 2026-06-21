@@ -6,7 +6,7 @@
 # phantom-secops ⇄ phantom-mesh integration (day-1 design)
 
 **Date:** 2026-05-04
-**Author:** Z13 session
+**Author:** orchestrator node (Win) session
 **Time budget:** 6.5h, target ship 13:00 same day
 **Status:** approved by user §1–§4, ready for implementation plan
 
@@ -156,7 +156,7 @@ cwd     = "${PHANTOM_SECOPS_ROOT}"
 
 `${PHANTOM_SECOPS_ROOT}` is resolved by the deploying script (§9
 `make mesh-sync`) to the actual checkout path on the target host
-(mac-coord: `/Users/<account>/Projects/phantom-secops` or wherever
+(a Mac node: `/path/to/phantom-secops` or wherever
 the user clones it). phantom-mesh's existing `[[mcp_servers]]`
 loader already expands `${ENV_VAR}` patterns in `cwd`, `args`, and
 `env` values.
@@ -387,7 +387,7 @@ after manual diff review (`make mesh-sync DRY_RUN=1` first).
 **End-to-end smoke (manual, run on Mac coord):**
 1. Apply agents.toml additions on mac-coord.
 2. Restart `phantom serve`.
-3. From Z13 over Tailscale + HMAC, POST `/rpc/task/assign` three times:
+3. From the orchestrator node (Win) over Tailscale + HMAC, POST `/rpc/task/assign` three times:
    - `"recon juice-shop"` → expect `secops_recon.scan_target` invoked.
    - `"summarize alerts in lab/mocks/attack-log.txt"` → expect `secops_log.scan_log`.
    - `"audit my own agents.toml for plaintext keys"` → expect `secops_self_audit.audit_local_config`.
