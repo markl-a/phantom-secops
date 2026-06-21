@@ -2121,14 +2121,14 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 **Files:** mac-coord's `~/.phantom-mesh/agents.toml`.
 
 This task requires SSH or shell access to the Mac coordinator
-(`100.87.93.58`). If you don't have it during the session, defer to a
+(`<mac-coord-host>`). If you don't have it during the session, defer to a
 follow-up; the previous tasks ship a self-contained spec + plan + code
 that the next session can apply.
 
-- [ ] **Step 1: Pre-flight from Z13**
+- [ ] **Step 1: Pre-flight from the orchestrator node (Win)**
 
 ```bash
-curl -sS http://100.87.93.58:7878/healthz   # must return "ok"
+curl -sS http://<mac-coord-host>:7878/healthz   # must return "ok"
 ```
 
 - [ ] **Step 2: Take a backup of current agents.toml on mac-coord**
@@ -2189,7 +2189,7 @@ pkill -f 'phantom serve' || true
 sleep 2
 nohup phantom serve > ~/.phantom-mesh/data/serve.log 2>&1 &
 sleep 5
-curl -sS http://100.87.93.58:7878/healthz
+curl -sS http://<mac-coord-host>:7878/healthz
 ```
 
 Expected: `ok`.
@@ -2202,11 +2202,11 @@ grep -i 'mcp\|secops' ~/.phantom-mesh/data/serve.log | head -10
 
 Expected: 3 "spawn" lines, one per `secops_*` server.
 
-- [ ] **Step 6: From Z13, dispatch three test tasks (HMAC-signed)**
+- [ ] **Step 6: From the orchestrator node (Win), dispatch three test tasks (HMAC-signed)**
 
 ```bash
 SECRET=$(awk -F'=' '/^[[:space:]]*cluster_secret/{gsub(/[" ]/,"",$2); print $2}' ~/.phantom-mesh/agents.toml)
-HOST=100.87.93.58; PORT=7878
+HOST=<mac-coord-host>; PORT=7878
 
 submit() {
   local prompt="$1"
@@ -2227,7 +2227,7 @@ For each: capture the `job_id`, then:
 
 ```bash
 JOB=...
-curl -sS http://100.87.93.58:7878/rpc/task/status/$JOB
+curl -sS http://<mac-coord-host>:7878/rpc/task/status/$JOB
 ```
 
 Expected: `status: done` for all three within ~30s; `output` contains the

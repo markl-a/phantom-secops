@@ -18,3 +18,12 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Autonomous-loop scratch (never push to this public repo).
+# May contain machine names / private IPs / local paths from the dev loop.
+.ai-shared/
+overnight/
+SESSION_RESUME.md
+cache/
+TASK-*.md
+configs/agents.*.toml

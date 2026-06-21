@@ -155,9 +155,9 @@ flowchart LR
 |---|---|
 | `docker-compose.yml` 的 attacker 服務從未引用 `Dockerfile.attacker` → 容器內**沒有 nuclei**(舊 inline `apt-get` 只裝 nmap),live nuclei 路徑從來跑不成 | compose attacker 改為 `build: Dockerfile.attacker`(預烤 nuclei 3.3.5 + templates) |
 | `nuclei_runner` 把 nuclei 的 `-timeout`(**每請求**連線逾時)誤設為整體 wall-clock 預算 → 每個慢請求 hang 滿整個預算,掃描永遠跑不完、被中途砍掉誤報 0 findings | 拆出獨立的 `request_timeout_s`(預設 10s),`timeout_s` 僅作 subprocess wall-clock 上限 |
-| 天真的全目錄/`info` 掃描對 juice-shop(SPA 對任何路徑都回 200)產生 ~58k 假陽性,違反原則 4 | live 路徑收斂到 `severity=high,critical`(有界 ~1 分鐘、高訊號、低假陽性) |
-| DEGRADED banner 的 `⚠` 在 Windows cp950 console 崩潰(UnicodeEncodeError) | `main()` 啟動時把 stdout/stderr reconfigure 為 UTF-8 |
-| juice-shop 是 distroless node 映像(無 sh/wget)→ wget 健康檢查永遠失敗,`make lab-up` 誤報逾時 | 健康檢查改用映像內的 `node` runtime + `start_period` |
+| 天真的全目錄/`info` 掃描對 juice-shop(SPA 對任何路徑都回 200)產生 ~58k 假陽性,違反原則 4 | live 路徑收斂到 `severity=high,critical`(有界 ~1 分鐘、高訊號、低假陽性;`--severity` 可按 target 覆寫) |
+| DEGRADED banner 的 `⚠` 在 Windows cp950 console 崩潰(UnicodeEncodeError) | 模組載入時把 stdout/stderr reconfigure 為 UTF-8(import 時,涵蓋直接呼叫 pipeline 的測試/入口) |
+| juice-shop 是 distroless node 映像(無 sh/wget)→ wget 健康檢查永遠失敗,`make lab-up` 誤報逾時 | 健康檢查改用映像內的 `node` runtime + `start_period`;映像以 digest pin 防止上游漂移 |
 
 > 誠實註記:這些 lab app 的漏洞是**應用邏輯型(OWASP 挑戰)**,非 nuclei 可指紋偵測的 CVE,所以 high/critical 誠實地是 0 findings;豐富的偵測訊號來自藍隊(IDS/log-anomaly)與端點 posture 支柱,不是 nuclei。
 
@@ -169,18 +169,18 @@ flowchart LR
 
 | 目標 | 具體項 | 在哪做 | 風險 / 前置 |
 |---|---|---|---|
-| 👤 **把 kill-chain 跑進 phantom-mesh 代理** | 今日由確定性 Python orchestrator(`scenarios/run_kill_chain.py`)驅動;改由代理迴圈驅動,**外包 governor + 手機核可**(設計見 `docs/_archive/L2-INTEGRATION-PLAN.md`;其 `secops_mcp/` façade **尚未建**) | `z13` + `claude` 編排;`codex` 寫 façade | 👤 需確認治理界線;前置 = G2 的 live 路徑可信 |
-| 用 `x-phantom` 真正擋工具 | blue 代理被拒用 red 工具(能力模型從「廣告」變「強制」) | `z13` + `codex`;`opencode` 對讀 MCP 中繼資料 | MCP 本身是攻擊面(工具下毒/越權),強制需可靠 |
-| LLM-judge / triage 層 | 在 fused 發現上加信心分數 + 誤報過濾 judge(對齊 Semgrep Assistant / Corgea「引擎找事實、LLM 分級」);`posture_fusion` 確定性核心保持不變 | `z13` + `claude` 設計 prompt;`codex` 實作;`agy`/`opencode` 雙閘 | 須守住「確定性脊椎」不被 LLM 取代 |
-| 視覺化 | mock 跑出 HTML 報告 + 時間軸(供圖表消費者) | `acer` 或 `z13` + `codex` | 低;純展示層 |
+| 👤 **把 kill-chain 跑進 phantom-mesh 代理** | 今日由確定性 Python orchestrator(`scenarios/run_kill_chain.py`)驅動;改由代理迴圈驅動,**外包 governor + 手機核可**(設計見 `docs/_archive/L2-INTEGRATION-PLAN.md`;其 `secops_mcp/` façade **尚未建**) | `orchestrator node (Win)` + `claude` 編排;`codex` 寫 façade | 👤 需確認治理界線;前置 = G2 的 live 路徑可信 |
+| 用 `x-phantom` 真正擋工具 | blue 代理被拒用 red 工具(能力模型從「廣告」變「強制」) | `orchestrator node (Win)` + `codex`;`opencode` 對讀 MCP 中繼資料 | MCP 本身是攻擊面(工具下毒/越權),強制需可靠 |
+| LLM-judge / triage 層 | 在 fused 發現上加信心分數 + 誤報過濾 judge(對齊 Semgrep Assistant / Corgea「引擎找事實、LLM 分級」);`posture_fusion` 確定性核心保持不變 | `orchestrator node (Win)` + `claude` 設計 prompt;`codex` 實作;`agy`/`opencode` 雙閘 | 須守住「確定性脊椎」不被 LLM 取代 |
+| 視覺化 | mock 跑出 HTML 報告 + 時間軸(供圖表消費者) | `a Windows node` 或 `orchestrator node (Win)` + `codex` | 低;純展示層 |
 
 ### 🔭 之後 — 跨庫政策強制器 + 注入分類對齊(護城河兌現)
 
 | 目標 | 具體項 | 在哪做 | 風險 / 前置 |
 |---|---|---|---|
-| 🛡️ **跨庫 `x-phantom` 強制器** | 在 phantom-mesh `mcp_client.rs` 落地 Rust 政策強制器(把 phantom-secops 從展示變成「任何 MCP 資安工具都能用的治理範式」) | `z13`(Rust 主庫)+ `claude` 編排;`codex` 寫 Rust;`agy` review | 跨庫;需 phantom-mesh 端協調。**這就是利基** |
-| 對齊業界分類 | 注入偵測器規則對齊 garak / PyRIT 分類(**引用不重造**) | `z13` + `opencode` 查分類 → `codex` 套用 | 低;引用既有 taxonomy |
-| 補概念 runner | `dnsrecon` / `subfinder` / `nikto`(目前只在圖中;nikto 已裝在 lab image 未被呼叫);LLM-written exploit prose(`--use-llm` 目前是 stub)+ 對本機 NVD 紀錄做 CVE grounding | `acer` + `codex` | 需 lab 環境;優先級低於護城河 |
+| 🛡️ **跨庫 `x-phantom` 強制器** | 在 phantom-mesh `mcp_client.rs` 落地 Rust 政策強制器(把 phantom-secops 從展示變成「任何 MCP 資安工具都能用的治理範式」) | `orchestrator node (Win)`(Rust 主庫)+ `claude` 編排;`codex` 寫 Rust;`agy` review | 跨庫;需 phantom-mesh 端協調。**這就是利基** |
+| 對齊業界分類 | 注入偵測器規則對齊 garak / PyRIT 分類(**引用不重造**) | `orchestrator node (Win)` + `opencode` 查分類 → `codex` 套用 | 低;引用既有 taxonomy |
+| 補概念 runner | `dnsrecon` / `subfinder` / `nikto`(目前只在圖中;nikto 已裝在 lab image 未被呼叫);LLM-written exploit prose(`--use-llm` 目前是 stub)+ 對本機 NVD 紀錄做 CVE grounding | `a Windows node` + `codex` | 需 lab 環境;優先級低於護城河 |
 
 ---
 

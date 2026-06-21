@@ -41,43 +41,45 @@ default_model = "llama-3.3-70b-versatile"
 # ── External MCP servers: this repo's three sec-ops plugins ────────────────────
 # Tools are auto-appended to every agent as `<name>_<tool>`, e.g.
 # secops_recon_scan_target, secops_log_scan_log, secops_self_audit_audit_local_config.
-# cwd is ignored by phantom today, so PYTHONPATH is set explicitly.
+# cwd is ignored by phantom today, so PYTHONPATH is set explicitly. Point it at
+# this repo's checkout via the PHANTOM_SECOPS_ROOT env var, e.g.
+#   PHANTOM_SECOPS_ROOT=/path/to/phantom-secops phantom exec --config secops-agent.toml ...
 
 [[mcp_servers]]
 name    = "secops_recon"
 command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
-env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
 
 [[mcp_servers]]
 name    = "secops_log"
 command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_log_server"]
-env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
 
 [[mcp_servers]]
 name    = "secops_self_audit"
 command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
-env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
 
 [[mcp_servers]]
 name    = "secops_host_audit"
 command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_host_audit_server"]
-env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
 
 [[mcp_servers]]
 name    = "secops_vuln"
 command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_vuln_server"]
-env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
 
 [[mcp_servers]]
 name    = "secops_ids"
 command = "python"
 args    = ["-m", "phantom_secops.mcp.secops_ids_server"]
-env     = { PYTHONPATH = "D:\\Projects\\phantom-secops" }
+env     = { PYTHONPATH = "${PHANTOM_SECOPS_ROOT}" }
 
 # ── The security-specialised agent ────────────────────────────────────────────
 [agent.secops]
