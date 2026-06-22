@@ -37,3 +37,50 @@ def summarize(findings: list) -> dict:
         counts[f.severity_name] = counts.get(f.severity_name, 0) + 1
     counts["total"] = len(findings)
     return counts
+
+
+import json
+import tomllib
+
+
+def _tool_from_def(d: dict) -> dict:
+    meta = d.get("metadata") or {}
+    return {
+        "name": str(d.get("name", "?")),
+        "description": str(d.get("description", "")),
+        "classification": meta.get("x-phantom.classification"),
+        "capabilities": list(meta.get("x-phantom.capabilities") or []),
+        "read_only": meta.get("x-phantom.read_only"),
+    }
+
+
+def parse_config(config_path: str, tools_dump: str | None = None) -> dict:
+    """Parse a .mcp.json or an agents.toml ([[mcp_servers]]) into the normalized
+    shape. Optionally merge an owner-supplied tools/list dump
+    ({server_name: [tool_def, ...]}) so tool-level rules can run. Never connects
+    to anything — pure file read."""
+    raw = open(config_path, "rb").read()
+    servers: list[dict] = []
+    if config_path.endswith(".json"):
+        data = json.loads(raw.decode("utf-8"))
+        for name, s in (data.get("mcpServers") or {}).items():
+            servers.append({
+                "name": str(name), "command": s.get("command"),
+                "args": list(s.get("args") or []), "url": s.get("url"),
+                "env": dict(s.get("env") or {}), "tools": [],
+            })
+    else:
+        data = tomllib.loads(raw.decode("utf-8"))
+        for s in (data.get("mcp_servers") or []):
+            servers.append({
+                "name": str(s.get("name", "?")), "command": s.get("command"),
+                "args": list(s.get("args") or []), "url": s.get("url"),
+                "env": dict(s.get("env") or {}), "tools": [],
+            })
+    if tools_dump:
+        dump = json.loads(open(tools_dump, "rb").read().decode("utf-8"))
+        by_name = {s["name"]: s for s in servers}
+        for sname, defs in dump.items():
+            if sname in by_name:
+                by_name[sname]["tools"] = [_tool_from_def(d) for d in defs]
+    return {"servers": servers}

@@ -16,3 +16,43 @@ def test_summarize_counts_by_severity_name():
     ]
     s = summarize(fs)
     assert s["total"] == 3 and s["critical"] == 2 and s["medium"] == 1 and s["low"] == 0
+
+
+from tools.mcp_audit import parse_config
+
+
+def test_parse_mcp_json(tmp_path):
+    p = tmp_path / ".mcp.json"
+    p.write_text('{"mcpServers": {"fs": {"command": "npx", "args": ["-y", "server-fs"], "env": {"TOKEN": "abc"}}}}', encoding="utf-8")
+    cfg = parse_config(str(p))
+    assert len(cfg["servers"]) == 1
+    s = cfg["servers"][0]
+    assert s["name"] == "fs" and s["command"] == "npx" and s["args"] == ["-y", "server-fs"]
+    assert s["env"] == {"TOKEN": "abc"} and s["tools"] == [] and s["url"] is None
+
+
+def test_parse_agents_toml_mcp_servers(tmp_path):
+    p = tmp_path / "agents.toml"
+    p.write_text(
+        '[[mcp_servers]]\nname = "web"\nurl = "https://mcp.example.com"\n'
+        '[[mcp_servers]]\nname = "code"\ncommand = "uvx"\nargs = ["code-mcp"]\n',
+        encoding="utf-8",
+    )
+    cfg = parse_config(str(p))
+    names = {s["name"] for s in cfg["servers"]}
+    assert names == {"web", "code"}
+
+
+def test_parse_merges_optional_tools_dump(tmp_path):
+    cp = tmp_path / ".mcp.json"
+    cp.write_text('{"mcpServers": {"fs": {"command": "npx", "args": []}}}', encoding="utf-8")
+    dp = tmp_path / "tools.json"
+    dp.write_text(
+        '{"fs": [{"name": "read", "description": "read a file",'
+        ' "metadata": {"x-phantom.classification": "blue", "x-phantom.capabilities": ["read.fs"], "x-phantom.read_only": true}}]}',
+        encoding="utf-8",
+    )
+    cfg = parse_config(str(cp), tools_dump=str(dp))
+    tool = cfg["servers"][0]["tools"][0]
+    assert tool["name"] == "read" and tool["read_only"] is True
+    assert tool["classification"] == "blue" and tool["capabilities"] == ["read.fs"]
