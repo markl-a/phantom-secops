@@ -217,3 +217,23 @@ def rule_lethal_trifecta(config: dict) -> list:
                 f"injection here can steal data — split capabilities across servers/agents",
             ))
     return out
+
+
+RULES = [
+    rule_tool_poisoning,
+    rule_url_ssrf,
+    rule_secrets,
+    rule_lethal_trifecta,
+    rule_capabilities,
+    rule_unpinned,
+]
+
+
+def audit_mcp(config: dict) -> dict:
+    """Run every deterministic rule and return findings ranked highest-risk-first
+    with a stable tiebreak (severity, rule_id, server, tool). No LLM, no I/O."""
+    findings: list = []
+    for rule in RULES:
+        findings.extend(rule(config))
+    findings.sort(key=lambda f: (-f.severity, f.rule_id, f.server, f.tool))
+    return {"findings": findings, "summary": summarize(findings)}
