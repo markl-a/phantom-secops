@@ -74,10 +74,30 @@ def test_unpinned_flags_npx_uvx_without_version():
     assert rule_unpinned(_server(command="npx", args=["-y", "some-server@1.2.3"])) == []
 
 
+def test_unpinned_accepts_major_only_pin():
+    # a major-only pin (server@1) is a valid pin and must NOT be flagged
+    assert rule_unpinned(_server(command="npx", args=["pkg@1"])) == []
+    # @latest is not a pin -> flagged
+    assert any(f.rule_id == "unpinned_supply_chain"
+               for f in rule_unpinned(_server(command="npx", args=["pkg@latest"])))
+    # no version at all -> flagged
+    assert any(f.rule_id == "unpinned_supply_chain"
+               for f in rule_unpinned(_server(command="npx", args=["pkg"])))
+
+
 def test_ssrf_flags_private_and_metadata_urls():
     assert any(f.rule_id == "ssrf" for f in rule_url_ssrf(_server(url="http://169.254.169.254/latest")))
     assert any(f.rule_id == "ssrf" for f in rule_url_ssrf(_server(url="http://127.0.0.1:8080")))
     # a public https url is NOT flagged
+    assert rule_url_ssrf(_server(url="https://mcp.example.com")) == []
+
+
+def test_ssrf_flags_ipv6_loopback_and_metadata():
+    # IPv6 loopback with brackets + port must be flagged
+    assert any(f.rule_id == "ssrf" for f in rule_url_ssrf(_server(url="http://[::1]:9000/x")))
+    # metadata host still flags
+    assert any(f.rule_id == "ssrf" for f in rule_url_ssrf(_server(url="http://169.254.169.254")))
+    # public host still clean
     assert rule_url_ssrf(_server(url="https://mcp.example.com")) == []
 
 
@@ -86,6 +106,20 @@ def test_secrets_flags_inline_token_in_env():
     assert any(f.rule_id == "secret_exposure" for f in fs)
     # an env-var reference (value is an env var NAME, not a secret) is not flagged
     assert rule_secrets(_server(env={"API_KEY_ENV": "OPENAI_API_KEY"})) == []
+
+
+def test_secrets_does_not_flag_long_innocuous_value():
+    # a long opaque config value (DB name) must NOT be flagged as a secret
+    assert rule_secrets(_server(env={"DB_NAME": "this_is_a_long_db_name_value_here_xxxxx"})) == []
+
+
+def test_secrets_flags_known_prefix_secrets():
+    # github personal access token prefix
+    assert any(f.rule_id == "secret_exposure"
+               for f in rule_secrets(_server(env={"GH_TOKEN": "ghp_abcdefghij0123456789ABCDEFGHIJ"})))
+    # AWS access key id prefix
+    assert any(f.rule_id == "secret_exposure"
+               for f in rule_secrets(_server(env={"AWS_KEY": "AKIAIOSFODNN7EXAMPLE"})))
 
 
 from tools.mcp_audit import rule_capabilities, rule_tool_poisoning, rule_lethal_trifecta
@@ -128,6 +162,17 @@ def test_lethal_trifecta_flags_private_untrusted_exfil_combo():
     assert any(f.rule_id == "lethal_trifecta" for f in fs)
     # only two of the three legs -> not flagged
     assert rule_lethal_trifecta(_server_with_tools(tools[:2])) == []
+
+
+def test_lethal_trifecta_word_environment_is_not_a_private_leg():
+    # "environment" substring must NOT satisfy the private-data leg; with an
+    # untrusted + an exfil tool this must NOT produce a lethal_trifecta finding.
+    tools = [
+        {"name": "notify", "description": "Send environment-aware notifications", "classification": "blue", "capabilities": ["net.egress"], "read_only": False},
+        {"name": "fetch_url", "description": "fetch untrusted web content", "classification": "blue", "capabilities": ["net.fetch"], "read_only": True},
+        {"name": "post_webhook", "description": "upload data to an external webhook", "classification": "blue", "capabilities": ["net.egress"], "read_only": False},
+    ]
+    assert rule_lethal_trifecta(_server_with_tools(tools)) == []
 
 
 from tools.mcp_audit import audit_mcp

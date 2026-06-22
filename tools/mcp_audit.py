@@ -8,6 +8,14 @@ dump). Mirrors the deterministic, low-false-positive spine of posture_fusion.
 
 from __future__ import annotations
 
+import argparse
+import ipaddress
+import json
+import os
+import re
+import sys
+import tomllib
+import urllib.parse
 from dataclasses import dataclass
 
 # Common 0..4 severity scale (4 == most urgent), same vocabulary as posture_fusion.
@@ -39,10 +47,6 @@ def summarize(findings: list) -> dict:
     return counts
 
 
-import json
-import tomllib
-
-
 def _tool_from_def(d: dict) -> dict:
     meta = d.get("metadata") or {}
     return {
@@ -59,7 +63,8 @@ def parse_config(config_path: str, tools_dump: str | None = None) -> dict:
     shape. Optionally merge an owner-supplied tools/list dump
     ({server_name: [tool_def, ...]}) so tool-level rules can run. Never connects
     to anything — pure file read."""
-    raw = open(config_path, "rb").read()
+    with open(config_path, "rb") as fh:
+        raw = fh.read()
     servers: list[dict] = []
     if config_path.endswith(".json"):
         data = json.loads(raw.decode("utf-8"))
@@ -78,7 +83,8 @@ def parse_config(config_path: str, tools_dump: str | None = None) -> dict:
                 "env": dict(s.get("env") or {}), "tools": [],
             })
     if tools_dump:
-        dump = json.loads(open(tools_dump, "rb").read().decode("utf-8"))
+        with open(tools_dump, "rb") as fh:
+            dump = json.loads(fh.read().decode("utf-8"))
         by_name = {s["name"]: s for s in servers}
         for sname, defs in dump.items():
             if sname in by_name:
@@ -86,12 +92,15 @@ def parse_config(config_path: str, tools_dump: str | None = None) -> dict:
     return {"servers": servers}
 
 
-import ipaddress
-import re
-
-# Conservative inline-secret heuristic: long high-entropy-ish tokens / known prefixes.
-_SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|[A-Za-z0-9_\-]{32,})")
-_VERSION_RE = re.compile(r"@[0-9]+\.[0-9]+")  # a pinned semver-ish suffix
+# Conservative inline-secret heuristic: known high-confidence secret prefixes only
+# (no bare catch-all, which flagged any long opaque config value as a secret).
+_SECRET_RE = re.compile(
+    r"(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})"
+)
+# A pinned version suffix: accepts a major-only pin (@1) or finer (@1.2, @1.2.3),
+# but not @latest / @next (non-numeric tag). Matches a numeric dotted run not
+# immediately followed by a letter/underscore/dash (which would make it a tag).
+_VERSION_RE = re.compile(r"@[0-9]+(\.[0-9]+)*(?![\w-])")
 
 
 def rule_unpinned(config: dict) -> list:
@@ -125,8 +134,8 @@ def rule_url_ssrf(config: dict) -> list:
         url = s.get("url")
         if not url:
             continue
-        m = re.match(r"^[a-z]+://([^/:]+)", url)
-        host = m.group(1) if m else ""
+        # urlsplit strips [..] brackets / :port and lowercases the host.
+        host = urllib.parse.urlsplit(url).hostname or ""
         if _is_dangerous_host(host):
             out.append(_finding(
                 3, "ssrf", s["name"], "-", "ssrf",
@@ -152,7 +161,7 @@ def rule_secrets(config: dict) -> list:
 
 
 # Heuristic keyword sets for the lethal-trifecta legs (conservative; candidate flags).
-_PRIVATE_HINTS = ("secret", "credential", "password", "token", "private", "~/.ssh", "keychain", "env")
+_PRIVATE_HINTS = ("secret", "credential", "password", "token", "private", "~/.ssh", "keychain")
 _UNTRUSTED_HINTS = ("fetch", "url", "web", "untrusted", "scrape", "browse", "email", "inbox")
 _EXFIL_HINTS = ("webhook", "egress", "send", "upload", "post", "external", "outbound", "publish")
 # Injection markers that should never appear in a benign tool description.
@@ -270,11 +279,6 @@ def summary_json(result: dict) -> str:
             for f in result["findings"]
         ],
     }, ensure_ascii=False, indent=2)
-
-
-import argparse
-import os
-import sys
 
 
 def main(argv: list | None = None) -> int:
