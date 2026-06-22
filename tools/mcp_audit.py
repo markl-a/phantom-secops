@@ -237,3 +237,36 @@ def audit_mcp(config: dict) -> dict:
         findings.extend(rule(config))
     findings.sort(key=lambda f: (-f.severity, f.rule_id, f.server, f.tool))
     return {"findings": findings, "summary": summarize(findings)}
+
+
+def render_report(result: dict) -> str:
+    findings = result["findings"]
+    s = result["summary"]
+    lines = [
+        "== PRIORITISED MCP RISKS ==",
+        "",
+        f"servers scanned offline; {s['total']} finding(s): "
+        f"{s['critical']} critical, {s['high']} high, {s['medium']} medium, {s['low']} low.",
+        "",
+        "(read-only static analysis — advice only, never an exploit; mapped to OWASP MCP Top 10)",
+        "",
+    ]
+    if not findings:
+        lines.append("- no MCP risks found in the supplied config.")
+    else:
+        for f in findings:
+            scope = f.server if f.tool == "-" else f"{f.server}/{f.tool}"
+            lines.append(f"- [{f.severity_name.upper()}] ({f.owasp}) {scope}: {f.message}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def summary_json(result: dict) -> str:
+    return json.dumps({
+        "summary": result["summary"],
+        "findings": [
+            {"severity": f.severity, "severity_name": f.severity_name, "rule_id": f.rule_id,
+             "server": f.server, "tool": f.tool, "owasp": f.owasp, "message": f.message}
+            for f in result["findings"]
+        ],
+    }, ensure_ascii=False, indent=2)

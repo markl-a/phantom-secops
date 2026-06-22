@@ -152,3 +152,31 @@ def test_audit_clean_config_has_no_findings():
     config = {"servers": [{"name": "s", "command": None, "args": [], "url": "https://mcp.example.com",
                            "env": {"API_KEY_ENV": "OPENAI_API_KEY"}, "tools": []}]}
     assert audit_mcp(config)["findings"] == []
+
+
+import json as _json
+from tools.mcp_audit import render_report, summary_json
+
+
+def test_render_report_is_plain_language_and_ranked():
+    result = audit_mcp({"servers": [{
+        "name": "s", "command": None, "args": [], "url": "http://127.0.0.1",
+        "env": {}, "tools": []}]})
+    md = render_report(result)
+    assert "== PRIORITISED MCP RISKS ==" in md
+    assert "ssrf" in md.lower() and "127.0.0.1" in md
+    assert "advice only" in md.lower()  # red-line framing: advise, never exploit
+
+
+def test_render_report_clean_config_says_no_high_risks():
+    result = audit_mcp({"servers": [{"name": "s", "command": None, "args": [], "url": None,
+                                     "env": {}, "tools": []}]})
+    assert "no MCP risks found" in render_report(result)
+
+
+def test_summary_json_is_machine_readable_with_owasp():
+    result = audit_mcp({"servers": [{"name": "s", "command": None, "args": [], "url": "http://127.0.0.1",
+                                     "env": {}, "tools": []}]})
+    obj = _json.loads(summary_json(result))
+    assert obj["summary"]["total"] >= 1
+    assert obj["findings"][0]["owasp"] == "ssrf" and "severity" in obj["findings"][0]
