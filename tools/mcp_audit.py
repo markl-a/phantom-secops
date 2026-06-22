@@ -149,3 +149,71 @@ def rule_secrets(config: dict) -> list:
                     f"reference an env var (e.g. {k}_ENV) instead of committing the secret",
                 ))
     return out
+
+
+# Heuristic keyword sets for the lethal-trifecta legs (conservative; candidate flags).
+_PRIVATE_HINTS = ("secret", "credential", "password", "token", "private", "~/.ssh", "keychain", "env")
+_UNTRUSTED_HINTS = ("fetch", "url", "web", "untrusted", "scrape", "browse", "email", "inbox")
+_EXFIL_HINTS = ("webhook", "egress", "send", "upload", "post", "external", "outbound", "publish")
+# Injection markers that should never appear in a benign tool description.
+_POISON_RE = re.compile(
+    r"(ignore (the )?previous|disregard (all|previous)|exfiltrat|system prompt|"
+    r"do not (tell|inform)|secretly|base64|\.ssh|over[- ]?broad)",
+    re.IGNORECASE,
+)
+
+
+def _leg(text: str, hints: tuple) -> bool:
+    t = text.lower()
+    return any(h in t for h in hints)
+
+
+def rule_capabilities(config: dict) -> list:
+    out = []
+    for s in config["servers"]:
+        for t in s.get("tools") or []:
+            if t.get("classification") is None and not t.get("capabilities") and t.get("read_only") is None:
+                out.append(_finding(
+                    2, "missing_capability_metadata", s["name"], t["name"], "excessive-permissions",
+                    f"tool '{t['name']}' has no x-phantom capability metadata; it cannot be "
+                    f"governed (add classification/capabilities/read_only)",
+                ))
+            elif t.get("read_only") is False and not t.get("capabilities"):
+                out.append(_finding(
+                    1, "missing_capability_metadata", s["name"], t["name"], "excessive-permissions",
+                    f"tool '{t['name']}' is write-capable (read_only=false) but declares no "
+                    f"capabilities; scope its capabilities explicitly",
+                ))
+    return out
+
+
+def rule_tool_poisoning(config: dict) -> list:
+    out = []
+    for s in config["servers"]:
+        for t in s.get("tools") or []:
+            blob = f"{t.get('name', '')} {t.get('description', '')}"
+            if _POISON_RE.search(blob):
+                out.append(_finding(
+                    4, "tool_poisoning", s["name"], t["name"], "tool-poisoning",
+                    f"tool '{t['name']}' description contains injection/exfiltration-style "
+                    f"language; treat the description as hostile and review the server",
+                ))
+    return out
+
+
+def rule_lethal_trifecta(config: dict) -> list:
+    out = []
+    for s in config["servers"]:
+        tools = s.get("tools") or []
+        blobs = [f"{t.get('name', '')} {t.get('description', '')} {' '.join(t.get('capabilities') or [])}" for t in tools]
+        has_private = any(_leg(b, _PRIVATE_HINTS) for b in blobs)
+        has_untrusted = any(_leg(b, _UNTRUSTED_HINTS) for b in blobs)
+        has_exfil = any(_leg(b, _EXFIL_HINTS) for b in blobs)
+        if has_private and has_untrusted and has_exfil:
+            out.append(_finding(
+                3, "lethal_trifecta", s["name"], "-", "data-exfiltration",
+                f"server '{s['name']}' exposes all three legs of the lethal trifecta "
+                f"(private-data access + untrusted-input + exfil channel); a prompt "
+                f"injection here can steal data — split capabilities across servers/agents",
+            ))
+    return out
