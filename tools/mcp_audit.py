@@ -270,3 +270,35 @@ def summary_json(result: dict) -> str:
             for f in result["findings"]
         ],
     }, ensure_ascii=False, indent=2)
+
+
+import argparse
+import os
+import sys
+
+
+def main(argv: list | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="mcp_audit", description="offline static MCP/agent security scanner")
+    ap.add_argument("config", help="path to .mcp.json or agents.toml")
+    ap.add_argument("--tools", help="optional tools/list JSON dump for tool-level rules")
+    ap.add_argument("--out", help="write the markdown report here (default: stdout)")
+    args = ap.parse_args(argv)
+    if not os.path.exists(args.config):
+        print(f"error: config not found: {args.config}", file=sys.stderr)
+        return 2
+    config = parse_config(args.config, tools_dump=args.tools)
+    result = audit_mcp(config)
+    report = render_report(result)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(report)
+        sidecar = os.path.splitext(args.out)[0] + ".summary.json"
+        with open(sidecar, "w", encoding="utf-8") as f:
+            f.write(summary_json(result))
+    else:
+        print(report)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

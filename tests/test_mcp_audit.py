@@ -180,3 +180,22 @@ def test_summary_json_is_machine_readable_with_owasp():
     obj = _json.loads(summary_json(result))
     assert obj["summary"]["total"] >= 1
     assert obj["findings"][0]["owasp"] == "ssrf" and "severity" in obj["findings"][0]
+
+
+from tools.mcp_audit import main
+
+
+def test_main_scans_a_config_and_writes_report(tmp_path, capsys):
+    cp = tmp_path / ".mcp.json"
+    cp.write_text('{"mcpServers": {"s": {"url": "http://127.0.0.1"}}}', encoding="utf-8")
+    out_md = tmp_path / "report.md"
+    rc = main([str(cp), "--out", str(out_md)])
+    assert rc == 0
+    body = out_md.read_text(encoding="utf-8")
+    assert "== PRIORITISED MCP RISKS ==" in body and "ssrf" in body.lower()
+    # a sibling summary.json is written next to the report
+    assert (tmp_path / "report.summary.json").exists()
+
+
+def test_main_missing_config_returns_2(tmp_path, capsys):
+    assert main([str(tmp_path / "nope.json")]) == 2
