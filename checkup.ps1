@@ -71,7 +71,13 @@ if (-not $SkipAgent) {
               "Do NOT run any tools or re-scan. From THIS DATA ONLY, give one " +
               "prioritised action list, most urgent first, with exact fix versions " +
               "for any CVEs.`n`n" + $toolOut
-    $prompt | phantom exec --config "$repo\secops-agent.toml" --agent secops --quiet
+    # Optional provider passthrough: PHANTOM_PROVIDER set + non-empty →
+    # `--provider <value>` right after `exec`; unset/empty → command unchanged.
+    $providerArgs = @()
+    if ($env:PHANTOM_PROVIDER -and $env:PHANTOM_PROVIDER.Trim()) {
+        $providerArgs = @("--provider", $env:PHANTOM_PROVIDER.Trim())
+    }
+    $prompt | phantom exec @providerArgs --config "$repo\secops-agent.toml" --agent secops --quiet
 }
 
 Write-Host "`n=== check-up complete ===" -ForegroundColor Green

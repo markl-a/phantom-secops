@@ -293,6 +293,14 @@ def _run_mesh(
     }
     cmd = [
         phantom_bin, "exec",
+    ]
+    # Optional provider passthrough: when PHANTOM_PROVIDER is set and non-empty,
+    # forward it as `--provider <value>` right after `exec`. Unset/empty → argv
+    # unchanged (default behavior preserved).
+    provider = os.environ.get("PHANTOM_PROVIDER", "").strip()
+    if provider:
+        cmd += ["--provider", provider]
+    cmd += [
         "--config", str(DEMO_CONFIG),
         "--agent", "killchain",
         "Run the kill-chain.",

@@ -66,6 +66,58 @@ def test_mesh_driver_matches_direct_driver_mttd(tmp_path, monkeypatch):
     assert "Pentest Report" in pentest and "Incident Report" in incident
 
 
+def test_mesh_driver_forwards_provider_when_env_set(tmp_path, monkeypatch):
+    """PHANTOM_PROVIDER set → `--provider <val>` forwarded right after `exec`,
+    without disturbing --config/--agent."""
+    monkeypatch.setattr(rk.shutil, "which", lambda _b: "/usr/bin/phantom")
+    monkeypatch.setenv("PHANTOM_PROVIDER", "cerebras")
+
+    captured = {}
+
+    def _capture(cmd, env=None, **kw):
+        captured["cmd"] = cmd
+        return _fake_phantom_success(cmd, env=env, **kw)
+
+    monkeypatch.setattr(rk.subprocess, "run", _capture)
+    d = tmp_path / "mesh"
+    d.mkdir(parents=True)
+    rk._run_mesh(_mesh_args(d), d)
+
+    cmd = captured["cmd"]
+    assert cmd[:4] == ["phantom", "exec", "--provider", "cerebras"]
+    # core flags untouched
+    assert "--config" in cmd and "--agent" in cmd
+    assert cmd[cmd.index("--agent") + 1] == "killchain"
+
+
+def test_mesh_driver_omits_provider_when_env_unset(tmp_path, monkeypatch):
+    """PHANTOM_PROVIDER unset/empty → argv unchanged (no --provider)."""
+    monkeypatch.setattr(rk.shutil, "which", lambda _b: "/usr/bin/phantom")
+    monkeypatch.delenv("PHANTOM_PROVIDER", raising=False)
+
+    captured = {}
+
+    def _capture(cmd, env=None, **kw):
+        captured["cmd"] = cmd
+        return _fake_phantom_success(cmd, env=env, **kw)
+
+    monkeypatch.setattr(rk.subprocess, "run", _capture)
+    d = tmp_path / "mesh"
+    d.mkdir(parents=True)
+    rk._run_mesh(_mesh_args(d), d)
+
+    cmd = captured["cmd"]
+    assert "--provider" not in cmd
+    assert cmd[:2] == ["phantom", "exec"]
+    assert cmd[2] == "--config"
+
+    # empty string is treated the same as unset
+    monkeypatch.setenv("PHANTOM_PROVIDER", "  ")
+    captured.clear()
+    rk._run_mesh(_mesh_args(d), d)
+    assert "--provider" not in captured["cmd"]
+
+
 def test_mesh_driver_errors_when_phantom_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(rk.shutil, "which", lambda _b: None)
     d = tmp_path / "mesh"
