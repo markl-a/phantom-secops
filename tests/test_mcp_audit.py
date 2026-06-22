@@ -56,3 +56,33 @@ def test_parse_merges_optional_tools_dump(tmp_path):
     tool = cfg["servers"][0]["tools"][0]
     assert tool["name"] == "read" and tool["read_only"] is True
     assert tool["classification"] == "blue" and tool["capabilities"] == ["read.fs"]
+
+
+from tools.mcp_audit import rule_unpinned, rule_url_ssrf, rule_secrets
+
+
+def _server(**kw):
+    base = {"name": "s", "command": None, "args": [], "url": None, "env": {}, "tools": []}
+    base.update(kw)
+    return {"servers": [base]}
+
+
+def test_unpinned_flags_npx_uvx_without_version():
+    fs = rule_unpinned(_server(command="npx", args=["-y", "some-server"]))
+    assert any(f.rule_id == "unpinned_supply_chain" for f in fs)
+    # a pinned version is NOT flagged
+    assert rule_unpinned(_server(command="npx", args=["-y", "some-server@1.2.3"])) == []
+
+
+def test_ssrf_flags_private_and_metadata_urls():
+    assert any(f.rule_id == "ssrf" for f in rule_url_ssrf(_server(url="http://169.254.169.254/latest")))
+    assert any(f.rule_id == "ssrf" for f in rule_url_ssrf(_server(url="http://127.0.0.1:8080")))
+    # a public https url is NOT flagged
+    assert rule_url_ssrf(_server(url="https://mcp.example.com")) == []
+
+
+def test_secrets_flags_inline_token_in_env():
+    fs = rule_secrets(_server(env={"API_KEY": "sk-live-abcdef0123456789"}))
+    assert any(f.rule_id == "secret_exposure" for f in fs)
+    # an env-var reference (value is an env var NAME, not a secret) is not flagged
+    assert rule_secrets(_server(env={"API_KEY_ENV": "OPENAI_API_KEY"})) == []

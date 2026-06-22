@@ -84,3 +84,68 @@ def parse_config(config_path: str, tools_dump: str | None = None) -> dict:
             if sname in by_name:
                 by_name[sname]["tools"] = [_tool_from_def(d) for d in defs]
     return {"servers": servers}
+
+
+import ipaddress
+import re
+
+# Conservative inline-secret heuristic: long high-entropy-ish tokens / known prefixes.
+_SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|[A-Za-z0-9_\-]{32,})")
+_VERSION_RE = re.compile(r"@[0-9]+\.[0-9]+")  # a pinned semver-ish suffix
+
+
+def rule_unpinned(config: dict) -> list:
+    out = []
+    for s in config["servers"]:
+        cmd = (s.get("command") or "").lower()
+        if cmd in ("npx", "uvx", "pipx") or cmd.endswith("/npx"):
+            args_joined = " ".join(s.get("args") or [])
+            if not _VERSION_RE.search(args_joined):
+                out.append(_finding(
+                    2, "unpinned_supply_chain", s["name"], "-", "supply-chain",
+                    f"server '{s['name']}' fetches code at runtime via {cmd!r} with no pinned "
+                    f"version (rug-pull risk; pin a version or vendor the server)",
+                ))
+    return out
+
+
+def _is_dangerous_host(host: str) -> bool:
+    if host in ("localhost",):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local
+
+
+def rule_url_ssrf(config: dict) -> list:
+    out = []
+    for s in config["servers"]:
+        url = s.get("url")
+        if not url:
+            continue
+        m = re.match(r"^[a-z]+://([^/:]+)", url)
+        host = m.group(1) if m else ""
+        if _is_dangerous_host(host):
+            out.append(_finding(
+                3, "ssrf", s["name"], "-", "ssrf",
+                f"server '{s['name']}' url points at a private/loopback/metadata host "
+                f"({host}); confirm this is intended and not an SSRF/exfil path",
+            ))
+    return out
+
+
+def rule_secrets(config: dict) -> list:
+    out = []
+    for s in config["servers"]:
+        for k, v in (s.get("env") or {}).items():
+            if k.endswith("_ENV"):  # value is an env-var NAME, the safe pattern
+                continue
+            if isinstance(v, str) and _SECRET_RE.fullmatch(v.strip()):
+                out.append(_finding(
+                    3, "secret_exposure", s["name"], "-", "secret-exposure",
+                    f"server '{s['name']}' env '{k}' appears to inline a secret value; "
+                    f"reference an env var (e.g. {k}_ENV) instead of committing the secret",
+                ))
+    return out
