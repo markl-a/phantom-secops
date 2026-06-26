@@ -50,6 +50,24 @@ returned exact upgrade versions in fix-first order.
 
 ## Quickstart
 
+This repo is intentionally published as a source-checkout tool for now, not as
+an installable Python package. The official public entrypoints are:
+
+- `python scenarios/run_kill_chain.py --target juice-shop --mock` for the
+  CI-safe red/blue demo with no Docker and no API key.
+- `python -m pytest -q` for the deterministic test suite.
+- `python scripts/run_goal.py --out reports/verification` for the verification
+  pack.
+- `python -m phantom_secops.defensive_loop --out reports/defensive-demo` for
+  the hermetic defensive finding/timeline artifact loop.
+- `python -m phantom_secops.evidence_playbook --out reports/evidence-playbook`
+  for the hermetic evidence pack and tabletop playbook simulation.
+- `.\checkup.ps1` on Windows for the local endpoint self-check.
+- `make ...` targets on Unix-like shells as shortcuts over the Python scripts.
+
+Live lab targets and mesh/LLM paths are opt-in. The default public demo path is
+mock/read-only and does not scan external systems.
+
 ```bash
 # Demo 1 — red/blue kill-chain + MTTD  (~1s, no Docker, no API key)
 make demo-mock        # or: python scenarios/run_kill_chain.py --target juice-shop --mock
@@ -57,11 +75,76 @@ make demo-mock        # or: python scenarios/run_kill_chain.py --target juice-sh
 # Demo 1 (live) — real nmap + nuclei against the Docker lab
 make lab-up && make demo && make lab-down
 
+# Goal verification pack (mock kill-chain + checkup + governance smoke + model diff)
+make verify-goal
+
+# P2 hermetic defensive workbench loop: no active scanning, no Docker, no PoC
+python -m phantom_secops.defensive_loop --out reports/defensive-demo
+
+# P2 evidence pack + playbook simulation: metadata-only, no actions executed
+python -m phantom_secops.evidence_playbook --out reports/evidence-playbook
+
+# Cross-model smoke for codex/claude/hermes (optional)
+# Set GOAL_MODEL_RUNNER_<MODEL> to a command template and rerun:
+# GOAL_MODEL_RUNNER_CODEX="python scripts/run_goal_model_runner.py --model codex --scenario {scenario} --out_dir {out_dir} --target {target} --path {path}"
+# GOAL_MODEL_RUNNER_CLAUDE="python scripts/run_goal_model_runner.py --model claude --scenario {scenario} --out_dir {out_dir} --target {target} --path {path}"
+# GOAL_MODEL_RUNNER_HERMES="python scripts/run_goal_model_runner.py --model hermes --scenario {scenario} --out_dir {out_dir} --target {target} --path {path}"
+# Make kill-chain output identical while models are still unavailable:
+# make verify-goal
+# make verify-goal-strict
+
+# For strict audits (governance required + cross-model parity required):
+make verify-goal-strict
+
+# When phantom-mesh becomes usable, switch runners to mesh mode per model:
+# GOAL_MODEL_RUNNER_CODEX="python scripts/run_goal_model_runner.py --model codex --mesh --scenario {scenario} --out_dir {out_dir} --target {target} --path {path}"
+# make verify-goal-mesh
+
 # Verify — full deterministic test suite (no real scanning in CI)
 python -m pytest -q
 ```
 
-Artifacts land in `reports/runs/<ts>/`: `incident-report.md`, `pentest-report.md`, `summary.json`.
+Artifacts land in `reports/verification/<ts>/`:
+- `killchain/` baseline run: `incident-report.md`, `pentest-report.md`, `summary.json`
+- `checkup/checkup.txt`: checkup text artifact
+- `governance/` governance decisions: `governance.jsonl` and `governance.log`
+- `goal-manifest.json` with stable fields:
+  - `run` (`mesh` + `provider`)
+  - `killchain_signature` / `checkup_signature`
+  - `models` outcomes
+  - `model_compare` (`killchain` and `checkup`)
+  - `governance` block (`decision_count`, `decision_values`, audit file)
+- `audit_summary` with `killchain.mttd / outcome / detect_margin` and `governance_log`
+
+P2 defensive-loop artifacts land in the directory passed to
+`python -m phantom_secops.defensive_loop --out <dir>`:
+- `findings.jsonl` with schema version 1 defensive findings.
+- `timeline.json` with checkup -> verify -> analyze events.
+- `analysis.json` with ranked defensive actions.
+- `verification.json` with no-active-scan and no-runnable-PoC checks.
+- `manifest.json` recording `active_scanning=false`, `external_network=false`,
+  `exploit_poc=false`, and `writes_to_host=false`.
+
+P2 evidence/playbook artifacts land in the directory passed to
+`python -m phantom_secops.evidence_playbook --out <dir>`:
+- `evidence-pack.json` with metadata-only synthetic evidence references.
+- `playbook-simulation.json` with tabletop decisions and no executed actions.
+- `decision-log.jsonl` with metadata-only response decisions.
+- `verification.json` with no-action/no-scan/no-PoC checks.
+- `manifest.json` recording `active_scanning=false`, `external_network=false`,
+  `exploit_poc=false`, `writes_to_host=false`, and `read_only=true`.
+
+P3 read-only reasoning artifacts land in the directory passed to
+`python -m phantom_secops.reasoning_scenario --out <dir>`:
+- `reasoning-report.json` with finding/evidence counts and read-only readiness.
+- `kill-chain-hypotheses.json` with synthetic advice-only hypotheses.
+- `playbook-review.json` with tabletop decision review and no executed actions.
+- `audit-summary.json` with metadata-only audit events.
+- `manifest.json` recording `active_scanning=false`, `external_network=false`,
+  `exploit_poc=false`, `writes_to_host=false`, `read_only=true`, and
+  `actions_executed=false`.
+
+Full P3 contract: [docs/REASONING_SCENARIO.md](docs/REASONING_SCENARIO.md).
 
 ---
 

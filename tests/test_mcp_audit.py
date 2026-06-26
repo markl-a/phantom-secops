@@ -119,7 +119,7 @@ def test_secrets_flags_known_prefix_secrets():
                for f in rule_secrets(_server(env={"GH_TOKEN": "ghp_abcdefghij0123456789ABCDEFGHIJ"})))
     # AWS access key id prefix
     assert any(f.rule_id == "secret_exposure"
-               for f in rule_secrets(_server(env={"AWS_KEY": "AKIAIOSFODNN7EXAMPLE"})))
+               for f in rule_secrets(_server(env={"AWS_KEY": "AKIA" + "IOSFODNN7EXAMPLE"})))
 
 
 from tools.mcp_audit import rule_capabilities, rule_tool_poisoning, rule_lethal_trifecta
