@@ -25,6 +25,22 @@ def test_release_prep_documents_exist_and_define_safe_contribution_flow() -> Non
     assert "7 days" in security
 
 
+def test_installable_package_metadata_and_quickstart_are_documented() -> None:
+    pyproject = _read("pyproject.toml")
+    readme = _read("README.md")
+    workflow = _read(".github/workflows/ci.yml")
+    combined = f"{pyproject}\n{readme}\n{workflow}"
+
+    assert 'name = "phantom-secops"' in pyproject
+    assert 'version = "0.1.0a0"' in pyproject
+    assert 'license = "Apache-2.0"' in pyproject
+    assert 'phantom-secops = "phantom_secops.cli:main"' in pyproject
+    assert "pip install -e ." in readme
+    assert "python -m pip wheel . --no-deps" in workflow
+    assert "python -m pip install -e . --dry-run --no-deps" in workflow
+    assert "phantom-secops reasoning-scenario --out" in combined
+
+
 def test_release_checklist_documents_final_gate_without_claiming_release_ready() -> None:
     changelog = _read("CHANGELOG.md")
     checklist = _read("docs/RELEASE_CHECKLIST.md")
@@ -51,6 +67,8 @@ def test_final_release_audit_records_scan_dependency_review_and_blockers() -> No
     assert "release candidate approved and tagged" in low
     assert "manual maintainer approval is recorded" in low
     assert "Apache-2.0" in audit
+    assert "install dry-run" in low
+    assert "wheel build" in low
 
 
 def test_release_notes_tag_plan_and_approval_gate_are_documented() -> None:
@@ -79,3 +97,5 @@ def test_ci_runs_release_prep_gate() -> None:
 
     assert "release-prep gate" in workflow
     assert "python -m pytest tests/test_release_prep_contract.py -q" in workflow
+    assert "python -m pytest -q" in workflow
+    assert "python -m phantom_secops.reasoning_scenario --out" in workflow

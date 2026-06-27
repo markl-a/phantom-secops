@@ -50,9 +50,14 @@ returned exact upgrade versions in fix-first order.
 
 ## Quickstart
 
-This repo is intentionally published as a source-checkout tool for now, not as
-an installable Python package. The official public entrypoints are:
+This repo is published as an installable Python package for the hermetic
+read-only public demo surface, with source-checkout commands retained for the
+lab and verification workflows. The official public entrypoints are:
 
+- `pip install -e .` for local package installation from a checkout.
+- `phantom-secops --help` for the installable top-level CLI.
+- `phantom-secops reasoning-scenario --out reports/reasoning-demo` for the
+  installable, hermetic, read-only public reasoning smoke.
 - `python scenarios/run_kill_chain.py --target juice-shop --mock` for the
   CI-safe red/blue demo with no Docker and no API key.
 - `python -m pytest -q` for the deterministic test suite.
@@ -70,6 +75,9 @@ mock/read-only and does not scan external systems.
 
 ```bash
 # Demo 1 — red/blue kill-chain + MTTD  (~1s, no Docker, no API key)
+pip install -e .
+phantom-secops --help
+phantom-secops reasoning-scenario --out reports/reasoning-demo
 make demo-mock        # or: python scenarios/run_kill_chain.py --target juice-shop --mock
 
 # Demo 1 (live) — real nmap + nuclei against the Docker lab

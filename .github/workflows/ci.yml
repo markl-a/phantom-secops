@@ -18,13 +18,24 @@ jobs:
           cache-dependency-path: requirements-dev.txt
 
       - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
+        run: python -m pip install -e ".[dev]"
+
+      - name: install dry-run
+        run: python -m pip install -e . --dry-run --no-deps
+
+      - name: wheel build
+        run: python -m pip wheel . --no-deps -w dist
 
       - name: make demo-mock
         run: make demo-mock
 
-      - name: make test
-        run: make test
+      - name: public reasoning smoke
+        run: |
+          python -m phantom_secops.reasoning_scenario --out /tmp/phantom-secops-reasoning
+          test -f /tmp/phantom-secops-reasoning/manifest.json
+
+      - name: pytest
+        run: python -m pytest -q
 
       - name: release-prep gate
         run: python -m pytest tests/test_release_prep_contract.py -q

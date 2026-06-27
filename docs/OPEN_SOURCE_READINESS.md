@@ -1,14 +1,15 @@
 # Open Source Readiness
 
 Project: `phantom-secops`
-Current phase: P3 hermetic read-only reasoning scenario verified
+Current phase: P4 installable public release candidate verified
 Master plan: `../../PHANTOM-SATELLITES-OPEN-SOURCE-MASTER-PLAN.md`
 
 ## Shipped Features
 
 - Read-only governed security-operations workbench with mock kill-chain and checkup flows.
 - Root README is detailed and points to `docs/phantom-secops.md` and `ETHICS.md`.
-- Root README now documents the official source-checkout entrypoints.
+- Root README now documents the installable public CLI and source-checkout entrypoints.
+- `pyproject.toml` defines `phantom-secops` package metadata, Apache-2.0 license metadata, dev/MCP extras, and CLI entrypoints.
 - Makefile, scripts, scenarios, lab, and `secops_mcp/` are present.
 - Help surface verified with `python scenarios/run_kill_chain.py --help`.
 - Verification-pack help verified with `python scripts/run_goal.py --help`.
@@ -17,7 +18,9 @@ Master plan: `../../PHANTOM-SATELLITES-OPEN-SOURCE-MASTER-PLAN.md`
 - P2 defensive loop writes a deterministic finding/timeline schema bundle with `manifest.json`, `findings.jsonl`, `timeline.json`, `analysis.json`, `verification.json`, and `summary.md`.
 - P2 evidence/playbook loop writes a deterministic metadata-only evidence pack and tabletop playbook simulation with `manifest.json`, `evidence-pack.json`, `playbook-simulation.json`, `decision-log.jsonl`, `verification.json`, and `summary.md`.
 - P3 reasoning scenario writes a deterministic read-only bundle with `manifest.json`, `reasoning-report.json`, `kill-chain-hypotheses.json`, `playbook-review.json`, `audit-summary.json`, and `summary.md`.
+- P3 hermetic read-only reasoning scenario verified before P4 installable release packaging.
 - Test suite baseline after P2 defensive-loop additions: `python -m pytest -q` passed with 334 tests.
+- P4 installable public surface exposes only hermetic/read-only commands as console scripts; live lab and active scanner paths remain source-checkout/opt-in.
 
 ## Planned Or Deferred Features
 
@@ -35,9 +38,10 @@ python scripts/run_goal.py --out <temp> --path .
 python -m phantom_secops.defensive_loop --out <temp>
 python -m phantom_secops.evidence_playbook --out <temp>
 python -m phantom_secops.reasoning_scenario --out <temp>
+phantom-secops reasoning-scenario --out <temp>
 ```
 
-README documents this as a source-checkout tool for now. Official public entrypoints are Python scripts, PowerShell checkup on Windows, and Makefile shortcuts on Unix-like shells.
+README documents this as an installable package for the hermetic public demo surface. Source-checkout entrypoints remain available for the mock kill-chain, verification pack, PowerShell checkup on Windows, and Makefile shortcuts on Unix-like shells.
 
 Observed P0 result on 2026-06-26:
 
@@ -170,3 +174,28 @@ Evidence:
 - `python -m pytest -q`: 346 passed.
 
 Remaining P4 work: none for the approved release-candidate tag.
+
+## P4 Release-Prep Slice 5
+
+Status: installable public package gate added and ready with documented limitations.
+
+Evidence:
+- `pyproject.toml` defines `phantom-secops` version `0.1.0a0`, Apache-2.0 license metadata, Python `>=3.10`, classifiers, project URLs, dev/MCP extras, package discovery, and console scripts.
+- Installable CLI scope is restricted to hermetic/read-only public artifacts: `phantom-secops`, `phantom-secops-defensive-loop`, `phantom-secops-evidence-playbook`, and `phantom-secops-reasoning-scenario`.
+- `.github/workflows/ci.yml` now runs editable install, install dry-run, wheel build, deterministic public reasoning smoke, full `python -m pytest -q`, release-prep gate, verification pack, and mesh-config lint.
+- `tests/test_packaging.py` verifies package metadata, version consistency, CLI entrypoints, and top-level help.
+- Current verification on 2026-06-27 is recorded in `docs/FINAL_RELEASE_AUDIT.md`.
+- `python -m pytest tests/test_packaging.py tests/test_release_prep_contract.py -q`: 9 passed.
+- `python -m pytest -q`: 350 passed.
+- `python -m pip install -e . --dry-run --no-deps`: would install `phantom-secops-0.1.0a0`.
+- `python -m pip wheel . --no-deps -w <temp>`: built `phantom_secops-0.1.0a0-py3-none-any.whl`.
+- Installed console script `phantom-secops --help`: OK.
+- Installed console script `phantom-secops reasoning-scenario --out <temp>`: wrote `manifest.json`.
+- Public CLI smokes for `defensive-loop`, `evidence-playbook`, and `reasoning-scenario` wrote manifests with `synthetic_only=true`, `active_scanning=false`, `external_network=false`, `exploit_poc=false`, `writes_to_host=false`, and `read_only=true`.
+- `python scenarios/run_kill_chain.py --target juice-shop --mock --out <temp>`: MTTD 15s, defender win, no Docker/API key.
+- `python scripts/run_goal.py --out <temp> --path .`: kill-chain ok, checkup ok, governance ok, cross-model dry-run comparison ok.
+- `python scripts/lint.py`: Python syntax and TOML syntax checks passed.
+- High-confidence secret scan: `high_conf_secret_hits=0`.
+- Root integration after this project: usage smoke 10/10, agent compatibility 40/40, root pytest 85 passed.
+
+Remaining P4 work: none for the installable public release-candidate gate; live lab or active scanner support still requires separate authorization and safety review.

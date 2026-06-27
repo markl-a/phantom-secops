@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phantom-secops"
+version = "0.1.0a0"
+description = "Read-only, governed security-operations demos and defensive reasoning artifacts for Phantom."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+  { name = "mark" },
+]
+keywords = [
+  "ai-agents",
+  "defensive-security",
+  "mcp",
+  "secops",
+  "security-automation",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "mcp>=1.0,<2.0",
+  "pytest>=7.0",
+]
+mcp = [
+  "mcp>=1.0,<2.0",
+]
+
+[project.scripts]
+phantom-secops = "phantom_secops.cli:main"
+phantom-secops-defensive-loop = "phantom_secops.defensive_loop:main"
+phantom-secops-evidence-playbook = "phantom_secops.evidence_playbook:main"
+phantom-secops-reasoning-scenario = "phantom_secops.reasoning_scenario:main"
+
+[project.urls]
+Homepage = "https://github.com/markl-a/phantom-secops"
+Documentation = "https://github.com/markl-a/phantom-secops#readme"
+Repository = "https://github.com/markl-a/phantom-secops"
+Issues = "https://github.com/markl-a/phantom-secops/issues"
+
+[tool.setuptools.packages.find]
+include = ["phantom_secops*", "secops_mcp*"]

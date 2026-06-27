@@ -7,6 +7,7 @@ Status: release candidate approved and tagged.
 ### Included
 
 - Local-first public demo path documented in `README.md`.
+- Installable package metadata and read-only public CLI entrypoints.
 - P3 scenario proof artifacts documented and tested.
 - P4 governance, security, release checklist, changelog, and final audit documents.
 - High-confidence secret scan recorded as `high_conf_secret_hits=0`.
@@ -15,6 +16,7 @@ Status: release candidate approved and tagged.
 ### Known Limitations
 
 - Live or external integrations remain opt-in, gated, or deferred.
+- The installable CLI intentionally exposes only hermetic/read-only public demo commands; live lab and active scanner workflows remain source-checkout and separately gated.
 - Staged or optional subtrees require separate audit before publication as supported release surfaces.
 - Release candidate tag `v0.1.0-alpha.0` identifies this approved public source release candidate.
 
